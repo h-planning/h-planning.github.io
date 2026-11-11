@@ -1,5 +1,5 @@
 /* HPG — service worker : mise en cache de l'application et notifications push. */
-const CACHE = 'hpg-v46';
+const CACHE = 'hpg-v47';
 const SHELL = ['./', 'index.html', 'app.js', 'calc.js', 'pdf.js', 'xlsx.js', 'modele-presence.js', 'modele-pointage.js', 'config.js', 'data-supabase.js', 'data-demo.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/favicon-32.png', 'icons/logo-80.png'];
 
 self.addEventListener('install', (e) => {
@@ -16,7 +16,8 @@ self.addEventListener('fetch', (e) => {
   const lib = url.hostname === 'cdn.jsdelivr.net' || url.hostname.endsWith('gstatic.com') || url.hostname === 'fonts.googleapis.com';
   if (!own && !lib) return;
   e.respondWith(
-    fetch(e.request).then((res) => {
+    // own : on revalide toujours auprès du serveur (sinon le cache HTTP de l'hébergeur garde l'ancienne version ~10 min)
+    fetch(e.request, own ? { cache: 'no-cache' } : undefined).then((res) => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
       return res;
     }).catch(() => caches.match(e.request).then((r) => r || caches.match('index.html')))

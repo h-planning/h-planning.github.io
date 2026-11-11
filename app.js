@@ -2662,16 +2662,21 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '46';
+  var APP_VERSION = '47';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
       var r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return;
       var v = String((await r.json()).v || ''); if (!v || v === APP_VERSION) return;
-      var busy = dlg.open || drag || (document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)), tried = '';
+      var busy = !S.me ? [].some.call(document.querySelectorAll('#auth input'), function (x) { return x.value && x.id !== 'au-email'; })
+        : dlg.open || drag || (document.activeElement && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)), tried = '';
       try { tried = sessionStorage.getItem('hpg-reload') || ''; } catch (e) {}
-      if (!busy && tried !== v) { try { sessionStorage.setItem('hpg-reload', v); } catch (e) {} location.reload(); return; }
-      if (!document.getElementById('upd-bar')) { var b = document.createElement('button'); b.id = 'upd-bar'; b.type = 'button'; b.textContent = 'Nouvelle version de HPG disponible · Actualiser'; b.onclick = function () { location.reload(); }; document.body.appendChild(b); }
+      if (!busy && tried !== v) {
+        try { sessionStorage.setItem('hpg-reload', v); } catch (e) {}
+        try { var reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration(); if (reg) await reg.update(); } catch (e) {}
+        setTimeout(function () { location.reload(); }, 800); return;
+      }
+      if (!document.getElementById('upd-bar')) { var b = document.createElement('button'); b.id = 'upd-bar'; b.type = 'button'; b.textContent = 'Nouvelle version de HPG disponible · Actualiser'; b.onclick = async function () { try { var reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration(); if (reg) await reg.update(); } catch (e) {} location.reload(); }; document.body.appendChild(b); }
     } catch (e) {}
   }
   setInterval(function () { if (!document.hidden) checkVersion(); }, 30000);
