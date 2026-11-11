@@ -2255,7 +2255,7 @@
     app.innerHTML = '<div class="auth"><form class="card form" id="auth" novalidate><div><h1>HPG</h1><p class="muted" style="margin:4px 0 0">Hotelplanning · planning et heures de l\'équipe</p></div><h3>' + title + '</h3>' + fields +
       '<div class="err" id="au-err" role="alert">' + esc(msg && msg.err || '') + '</div>' + (msg && msg.ok ? '<div class="banner info">' + esc(msg.ok) + '</div>' : '') +
       '<button class="btn primary" type="submit">' + { login: 'Continuer', signup: 'Créer mon compte', forgot: 'Recevoir le lien', recovery: 'Enregistrer' }[m] + '</button>' +
-      (sw ? '<div class="sw">' + sw + '</div>' : '') + '<p class="hint" style="margin:0">Votre identifiant et votre mot de passe vous sont remis par votre responsable.</p></form></div>';
+      (sw ? '<div class="auth-sw">' + sw + '</div>' : '') + '<p class="hint" id="au-hint" style="margin:0">Votre identifiant et votre mot de passe vous sont remis par votre responsable.</p></form></div>';
     var f = document.getElementById('auth');
     f.addEventListener('click', function (e) {
       var b = e.target.closest('[data-mode]'); if (b) { S.authMode = b.dataset.mode; authView(); return; }
@@ -2662,7 +2662,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '45';
+  var APP_VERSION = '46';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
