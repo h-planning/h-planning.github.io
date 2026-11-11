@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clés push HPG</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 680px; margin: 40px auto; padding: 0 16px; background: #F4F4EF; color: #1B2433; }
+  code, textarea { font-family: ui-monospace, Consolas, monospace; }
+  textarea { width: 100%; height: 64px; padding: 8px; border: 1px solid #D9DAD1; border-radius: 8px; }
+  button { padding: 10px 16px; border-radius: 8px; border: 0; background: #1B2433; color: #fff; font: inherit; cursor: pointer; }
+  label { font-weight: 600; display: block; margin-top: 16px; }
+  .warn { background: #FBEBC7; padding: 10px 14px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<h1>Clés des notifications push</h1>
+<p>Cette page fabrique, dans votre navigateur, la paire de clés qui permet à HPG d'envoyer des notifications sur les téléphones. Rien n'est envoyé sur internet.</p>
+<button id="go">Générer les clés</button>
+<label>Clé publique → à coller dans <code>config.js</code> (VAPID_PUBLIC_KEY) et dans Supabase (secret VAPID_PUBLIC_KEY)</label>
+<textarea id="pub" readonly></textarea>
+<label>Clé privée → uniquement dans Supabase (secret VAPID_PRIVATE_KEY)</label>
+<textarea id="priv" readonly></textarea>
+<p class="warn">Gardez la clé privée secrète : ne la mettez jamais dans <code>config.js</code>. Générez les clés une seule fois : si vous les changez, chaque employé devra réactiver les notifications.</p>
+<script>
+document.getElementById('go').onclick = async function () {
+  const k = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const jwk = await crypto.subtle.exportKey('jwk', k.privateKey);
+  const b = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+  const raw = new Uint8Array(65); raw[0] = 4; raw.set(b(jwk.x), 1); raw.set(b(jwk.y), 33);
+  const u = (a) => btoa(String.fromCharCode.apply(null, a)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  document.getElementById('pub').value = u(raw);
+  document.getElementById('priv').value = jwk.d;
+};
+</script>
+</body>
+</html>
