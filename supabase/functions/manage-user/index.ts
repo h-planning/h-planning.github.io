@@ -90,6 +90,14 @@ Deno.serve(async (req) => {
     const mustChange = (id: string) => admin.from("profiles").update({ must_change_pw: true }).eq("id", id);
     const canTeam = (svc: number) => coSvcs.includes(svc) && (isAdmin || (["manager", "assistant"].includes(me.role) && mySvcs.includes(svc) && !!st?.rights?.[me.role]?.team));
 
+    // essai d'envoi : e-mail de bienvenue adressé à soi-même (développeur / administrateur)
+    if (b.action === "test_mail") {
+      if (!isAdmin) return json({ error: "Réservé à la direction." }, 403);
+      const { data: mine } = await admin.from("profiles").select("email, full_name").eq("id", me.id).single();
+      if (!mine?.email) return json({ error: "Votre fiche n'a pas d'e-mail." }, 400);
+      return json({ ok: true, email: mine.email, ...(await welcome(mine.email, mine.full_name)) });
+    }
+
     if (b.action === "create") {
       const email = String(b.email ?? "").trim().toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: "Adresse e-mail invalide." }, 400);
