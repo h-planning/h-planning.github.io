@@ -158,6 +158,9 @@ Deno.serve(async (req) => {
         const { error } = await admin.auth.admin.updateUserById(t.id, { password: pw });
         if (error) return json({ error: error.message }, 400);
         await mustChange(t.id);
+        // jamais connecté (accès ouvert avant l'envoi des e-mails, ou e-mail perdu) : on renvoie l'e-mail de bienvenue
+        const { data: au } = await admin.auth.admin.getUserById(t.id);
+        if (t.email && !au?.user?.last_sign_in_at) return json({ ok: true, created: true, temp_password: pw, email: t.email, ...(await welcome(t.email, t.full_name)) });
         return json({ ok: true, temp_password: pw, email: t.email, mailed: false });
       }
       if (!t.email) return json({ error: "Renseignez d'abord l'e-mail du salarié." }, 400);

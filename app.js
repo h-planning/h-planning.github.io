@@ -1505,7 +1505,7 @@
     dlg.onclick = null;
     dlg.innerHTML = '<form id="pw" class="form" novalidate><div class="dlg-h"><div><div class="eyebrow">' + esc(ROLES[p.role] || '') + '</div><h3>Mot de passe de ' + esc(p.full_name || p.email) + '</h3></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b">' +
       '<div class="small">Identifiant : <b>' + esc(p.email || '—') + '</b></div>' +
-      '<p class="small" style="margin:0">' + (p.has_account ? 'Un <b>nouveau code provisoire</b> va remplacer son mot de passe actuel. Vous le remettrez en main propre ; à sa prochaine connexion, la personne choisira un nouveau mot de passe.'
+      '<p class="small" style="margin:0">' + (p.has_account ? 'Un <b>nouveau code provisoire</b> va remplacer son mot de passe actuel. Vous le remettrez en main propre ; à sa prochaine connexion, la personne choisira un nouveau mot de passe.' + (!p.last_sign_in_at && !(S.lastSeen || {})[p.id] ? ' Comme elle ne s\'est <b>jamais connectée</b>, elle recevra aussi l\'e-mail avec le lien du site et son identifiant.' : '')
         : 'Son <b>accès va être créé</b> : un code provisoire unique s\'affichera pour que vous le lui remettiez en main propre, et elle recevra un e-mail avec le lien du site et son identifiant.') + '</p>' +
       '<div class="err" id="pw-err" role="alert"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary" type="submit">' + (p.has_account ? 'Générer un nouveau code' : 'Créer l\'accès') + '</button></div></div></form>';
     var f = dlg.querySelector('#pw');
@@ -1519,7 +1519,7 @@
   }
   async function vTeam() {
     var res = await Promise.all([Store.profiles(), Store.lastSignIns().catch(function () { return {}; })]);
-    S.profiles = res[0]; var last = res[1];
+    S.profiles = res[0]; var last = res[1]; S.lastSeen = last;
     var svc = S.svc, canTeam = can('team', svc), admin = isAdmin();
     var pending = S.profiles.filter(function (p) { return p.role === 'pending'; });
     var members = S.profiles.filter(function (p) { return p.role !== 'pending' && ((p.services || []).indexOf(svc) >= 0 || (admin && S.teamAll && p.role === 'admin') || (admin && !(p.services || []).length && p.role === 'admin')); });
@@ -2694,7 +2694,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '49';
+  var APP_VERSION = '50';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
