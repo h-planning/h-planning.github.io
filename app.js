@@ -66,7 +66,7 @@
      un manager ou un administrateur la voit ; lecture seule, rien n'est enregistré ---------- */
   function isRealDev() { return ((S.realMe || S.me) || {}).role === 'developer'; }
   function previewStore(p) {
-    var W = /^(save|delete|create|update|add|set|replace|publish|unpublish|decide|cancel|credit|accrue|apply|switch|reset|resend|verify|mark|manage)/, READ = { publishedMonths: 1 }, st = {};
+    var W = /^(save|delete|create|update|add|set|replace|publish|unpublish|decide|cancel|credit|accrue|apply|switch|reset|resend|verify|mark|manage)/, READ = { publishedMonths: 1, settings: 1 }, st = {};
     Object.keys(RealStore).forEach(function (k) {
       var f = RealStore[k];
       if (typeof f !== 'function') { st[k] = f; return; }
@@ -2662,7 +2662,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '47';
+  var APP_VERSION = '48';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
