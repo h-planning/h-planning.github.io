@@ -137,6 +137,7 @@ create table public.profiles (
   seniority_balance numeric(5,1) not null default 0,
   recup_adjust_min integer not null default 0,     -- correction manuelle du compteur d'heures supp (minutes)
   active boolean not null default true,
+  must_change_pw boolean not null default false,   -- code provisoire remis par l'encadrement : nouveau mot de passe à choisir à la 1re connexion
   created_at timestamptz not null default now()
 );
 create unique index profiles_email_unique on public.profiles (lower(email)) where email is not null;
@@ -182,6 +183,11 @@ $$ select coalesce(public.my_role() = 'developer', false) $$;
 create or replace function public.my_company() returns smallint
 language sql stable security definer set search_path = public as
 $$ select company_id from profiles where id = auth.uid() $$;
+
+-- la personne a choisi son propre mot de passe (après un code provisoire)
+create or replace function public.pw_changed() returns void
+language sql security definer set search_path = public as
+$$ update profiles set must_change_pw = false where id = auth.uid() $$;
 
 create or replace function public.svc_company(svc smallint) returns smallint
 language sql stable security definer set search_path = public as
@@ -1585,7 +1591,7 @@ do $$ declare f text; begin
   foreach f in array array['publish_month(smallint, date)','unpublish_month(smallint, date)','decide_request(uuid, boolean, text)',
     'cancel_request(uuid)','update_profile(uuid, jsonb)','add_staff(jsonb)','accrue_cp(date)','accrue_seniority(date)',
     'credit_ferie(uuid[], numeric, date, text)','replace_cell(uuid[], jsonb)','audit_entries(int)','last_sign_ins()','ot_balance(uuid)',
-    'set_my_company(smallint)','save_company(jsonb)','apply_weekly_rest(uuid, date, date)'] loop
+    'set_my_company(smallint)','save_company(jsonb)','apply_weekly_rest(uuid, date, date)','pw_changed()'] loop
     execute 'revoke execute on function public.' || f || ' from anon, public';
     execute 'grant execute on function public.' || f || ' to authenticated';
   end loop;

@@ -32,6 +32,11 @@
   function ST(cid) { return db.settingsBy[cid || myCo() || 1]; }
   function svcsOf(p) { return (p && p.services) || []; }
   function inMine(svc) { return svcsOf(me).indexOf(svc) >= 0; }
+  function tempCode() {   // code provisoire XXXX-XXXX (sans 0/O, 1/I/L)
+    var A = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', c = '';
+    for (var i = 0; i < 8; i++) c += A[Math.floor(Math.random() * A.length)];
+    return c.slice(0, 4) + '-' + c.slice(4);
+  }
   function adminRight(r) { return role() === 'developer' || (role() === 'admin' && ((ST().rights || {}).admin || {})[r] !== false); }
   function can(r, svc) {
     if (!inCo(svc)) return false;
@@ -496,7 +501,8 @@
     resendCode: function () { return run(function () { var pl = db.pendingLogin; if (!pl) fail('Reconnectez-vous avec votre mot de passe.'); pl.code = String(Math.floor(100000 + Math.random() * 900000)); pl.at = Date.now(); return { demoCode: pl.code }; }); },
     signOut: function () { db.currentUser = null; me = null; save(); return Promise.resolve(); },
     resetPassword: function () { return Promise.resolve(); },
-    updatePassword: function (pw) { return run(function () { if (String(pw).length < 8) fail('Le mot de passe doit contenir au moins 8 caractères.'); (db.passwords = db.passwords || {})[me.id] = pw; }); },
+    updatePassword: function (pw) { return run(function () { if (String(pw).length < 8) fail('Le mot de passe doit contenir au moins 8 caractères.'); if (me.must_change_pw && pw === (db.passwords || {})[me.id]) fail('Choisissez un mot de passe différent du code provisoire.'); (db.passwords = db.passwords || {})[me.id] = pw; }); },
+    pwChanged: function () { return run(function () { me.must_change_pw = false; }); },
     setUserPassword: function (id, pw) {
       return run(function () {
         var t = profile(id); if (!t || !canSee(t)) fail('Salarié introuvable.');
@@ -506,10 +512,11 @@
           if (role() === 'admin' && !adminRight('passwords')) fail('Droit retiré par le développeur.');
           if (role() !== 'admin' && !svcsOf(t).some(function (s) { return inMine(s); })) fail("Cette personne n'est pas dans vos services.");
         }
-        if (String(pw).length < 8) fail('Le mot de passe doit contenir au moins 8 caractères.');
+        if (pw != null && String(pw).length < 8) fail('Le mot de passe doit contenir au moins 8 caractères.');
         if (!t.email) fail("Renseignez d'abord l'e-mail du salarié.");
-        (db.passwords = db.passwords || {})[id] = pw; t.has_account = true;
-        return { ok: true };
+        var created = !t.has_account, code = pw != null ? String(pw) : tempCode();
+        (db.passwords = db.passwords || {})[id] = code; t.has_account = true; t.must_change_pw = pw == null;
+        return { ok: true, created: created, temp_password: code, email: t.email, mailed: false, demo: true };
       });
     },
 
@@ -671,16 +678,19 @@
         if (!services.length && r !== 'admin') fail('Choisissez un service.');
         if (!p.full_name || !p.full_name.trim()) fail('Indiquez le nom du salarié.');
         if (!p.hire_date) fail("La date d'entrée est obligatoire.");
+        var access = !!(p.access || p.password);
         if (p.password && String(p.password).length < 8) fail('Le mot de passe doit contenir au moins 8 caractères.');
-        if (p.password && !(p.email || '').trim()) fail("Indiquez l'e-mail de connexion.");
+        if (access && !(p.email || '').trim()) fail("Indiquez l'e-mail de connexion.");
         var email = (p.email || '').trim().toLowerCase() || null;
         if (email && db.profiles.some(function (x) { return x.email && x.email.toLowerCase() === email; })) fail('Un salarié existe déjà avec cet e-mail.');
-        var row = { id: uid(), company_id: myCo(), full_name: p.full_name.trim(), email: email, has_account: !!p.password, role: r, services: services, service_id: services[0] || null,
+        var row = { id: uid(), company_id: myCo(), full_name: p.full_name.trim(), email: email, has_account: access, must_change_pw: access && !p.password, role: r, services: services, service_id: services[0] || null,
           location: p.location || null, job_title: p.job_title || null, weekly_rest: p.weekly_rest || [], contract_type: p.contract_type || 'extra',
           contract_hours: +p.contract_hours || 39, hire_date: p.hire_date, cp_balance: 0, ferie_balance: 0, recup_days: 0, rendre_days: 0, seniority_balance: 0, recup_adjust_min: 0, active: true, last_sign_in_at: null };
         db.profiles.push(row); audit('profiles', row, 'INSERT');
-        if (p.password) (db.passwords = db.passwords || {})[row.id] = p.password;
-        return row;
+        if (!access) return row;
+        var code = p.password || tempCode();   // démonstration : aucun e-mail réellement envoyé
+        (db.passwords = db.passwords || {})[row.id] = code;
+        return Object.assign({}, row, { temp_password: code, mailed: false, demo: true });
       });
     },
     lastSignIns: function () { var m = {}; db.profiles.filter(canSee).forEach(function (p) { if (p.last_sign_in_at) m[p.id] = p.last_sign_in_at; }); return ok(m); },

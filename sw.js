@@ -1,5 +1,5 @@
 /* HPG — service worker : mise en cache de l'application et notifications push. */
-const CACHE = 'hpg-v48';
+const CACHE = 'hpg-v49';
 const SHELL = ['./', 'index.html', 'app.js', 'calc.js', 'pdf.js', 'xlsx.js', 'modele-presence.js', 'modele-pointage.js', 'config.js', 'data-supabase.js', 'data-demo.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/favicon-32.png', 'icons/logo-80.png'];
 
 self.addEventListener('install', (e) => {

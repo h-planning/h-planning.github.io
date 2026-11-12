@@ -1477,24 +1477,45 @@
     var mine = S.me.services || [];
     return (p.services || []).some(function (x) { return mine.indexOf(x) >= 0; });
   }
+  /* Code provisoire : affiché UNE fois à la personne qui ouvre l'accès ; elle le remet en main propre.
+     Le salarié reçoit par e-mail le lien et son identifiant (jamais le code), puis choisit son mot de passe à la 1re connexion. */
+  function siteUrl() { return location.origin + location.pathname.replace(/[^/]*$/, ''); }
+  function showCode(p, r) {
+    var name = (p && (p.full_name || p.email)) || '', email = (r && r.email) || (p && p.email) || '';
+    var msg = 'Bonjour ' + name + ',\n\nVotre accès au planning de ' + (S.settings.hotel_name || 'l\'hôtel') + ' est ouvert.\nSite : ' + siteUrl() + '\nIdentifiant : ' + email + '\nMot de passe : le code provisoire que je vous remets en main propre.\nÀ la première connexion, vous choisirez votre propre mot de passe.';
+    var mail = r.demo ? '<div class="banner info">Démonstration : aucun e-mail n\'est réellement envoyé.</div>'
+      : r.mailed ? '<div class="banner info"><div>E-mail envoyé à <b>' + esc(email) + '</b> avec le lien du site et son identifiant (sans le code).</div></div>'
+      : r.created === false || (r.mailed === false && !r.mail_error) ? ''
+      : '<div class="banner warn mailwarn">' + (r.mail_error === 'not_configured' ? 'L\'envoi d\'e-mails n\'est pas encore configuré : aucun e-mail n\'est parti.' : 'L\'e-mail n\'a pas pu partir (' + esc(r.mail_error || '') + ').') +
+        ' Envoyez-lui ce message vous-même (il ne contient pas le code) :<textarea class="code-msg" readonly rows="6">' + esc(msg) + '</textarea><button type="button" class="btn sm" data-copy="msg">Copier le message</button></div>';
+    dlg.innerHTML = '<div class="form"><div class="dlg-h"><div><div class="eyebrow">Code provisoire</div><h3>' + esc(name) + '</h3></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b">' +
+      '<div class="small">Identifiant : <b>' + esc(email) + '</b></div>' +
+      '<div class="temp-code"><b class="mono">' + esc(r.temp_password) + '</b><button type="button" class="btn sm" data-copy="code">Copier</button></div>' +
+      '<div class="banner warn"><div>Notez-le maintenant : <b>il ne sera plus affiché</b>. Remettez-le à la personne <b>en main propre</b> (pas par e-mail). À sa première connexion, elle devra choisir son propre mot de passe.</div></div>' + mail +
+      '</div><div class="dlg-f"><span></span><button class="btn primary" data-close>J\'ai noté le code</button></div></div>';
+    dlg.onclick = function (e) {
+      var b = e.target.closest('[data-copy]'); if (!b) return;
+      var t = b.dataset.copy === 'code' ? r.temp_password : msg;
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copié'); }, function () { toast('Sélectionnez puis copiez à la main', true); });
+    };
+    if (!dlg.open) dlg.showModal();
+  }
   function openPassword(id) {
     var p = S.profiles.find(function (x) { return x.id === id; });
+    dlg.onclick = null;
     dlg.innerHTML = '<form id="pw" class="form" novalidate><div class="dlg-h"><div><div class="eyebrow">' + esc(ROLES[p.role] || '') + '</div><h3>Mot de passe de ' + esc(p.full_name || p.email) + '</h3></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b">' +
-      '<div class="small">Identifiant : <b>' + esc(p.email) + '</b>' + (p.has_account ? '' : ' · pas encore d\'accès : le mot de passe crée son accès') + '</div>' +
-      '<label class="f">Nouveau mot de passe (8 caractères minimum)<input type="text" id="pw-new" autocomplete="off" minlength="8" required></label>' +
-      '<label class="f">Confirmer<input type="text" id="pw-new2" autocomplete="off" minlength="8" required></label>' +
-      '<div class="hint">Communiquez-le à la personne en main propre ; elle pourra le changer depuis « Mon compte ».</div>' +
-      '<div class="err" id="pw-err" role="alert"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form>';
+      '<div class="small">Identifiant : <b>' + esc(p.email || '—') + '</b></div>' +
+      '<p class="small" style="margin:0">' + (p.has_account ? 'Un <b>nouveau code provisoire</b> va remplacer son mot de passe actuel. Vous le remettrez en main propre ; à sa prochaine connexion, la personne choisira un nouveau mot de passe.'
+        : 'Son <b>accès va être créé</b> : un code provisoire unique s\'affichera pour que vous le lui remettiez en main propre, et elle recevra un e-mail avec le lien du site et son identifiant.') + '</p>' +
+      '<div class="err" id="pw-err" role="alert"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary" type="submit">' + (p.has_account ? 'Générer un nouveau code' : 'Créer l\'accès') + '</button></div></div></form>';
     var f = dlg.querySelector('#pw');
     f.addEventListener('submit', async function (e) {
       e.preventDefault();
-      var a = f.querySelector('#pw-new').value.trim(), b = f.querySelector('#pw-new2').value.trim(), err = f.querySelector('#pw-err');
-      if (a.length < 8) { err.textContent = 'Le mot de passe doit contenir au moins 8 caractères.'; return; }
-      if (a !== b) { err.textContent = 'Les deux mots de passe ne sont pas identiques.'; return; }
-      try { await Store.setUserPassword(p.id, a); dlg.close(); toast('Mot de passe de ' + (p.full_name || p.email) + ' changé'); S.profiles = await Store.profiles(); render(); }
-      catch (ex) { err.textContent = ex.message; }
+      var err = f.querySelector('#pw-err'), btn = f.querySelector('button[type=submit]'); btn.disabled = true;
+      try { var r = await Store.setUserPassword(p.id); S.profiles = await Store.profiles(); render(); showCode(p, r); }
+      catch (ex) { err.textContent = ex.message; btn.disabled = false; }
     });
-    dlg.showModal(); f.querySelector('#pw-new').focus();
+    dlg.showModal();
   }
   async function vTeam() {
     var res = await Promise.all([Store.profiles(), Store.lastSignIns().catch(function () { return {}; })]);
@@ -1620,8 +1641,8 @@
       staffFields({ services: [S.svc] }, 'as') +
       '<div class="panel form access"><h3>Accès à l\'application</h3>' +
       '<label class="f">E-mail de connexion<input type="email" id="as-email" autocomplete="off" placeholder="prenom.nom@exemple.fr"></label>' +
-      '<label class="f">Mot de passe provisoire<input type="text" id="as-pw" autocomplete="off" placeholder="8 caractères minimum"></label>' +
-      '<div class="hint">Communiquez l\'e-mail et ce mot de passe au salarié : il se connecte avec, puis le change dans « Mon compte ». Laissez le mot de passe vide pour un extra ou un intérimaire sans accès (vous pourrez le créer plus tard).</div></div>' +
+      '<label class="row"><input type="checkbox" id="as-access" checked> Créer son accès à l\'application</label>' +
+      '<div class="hint">Un code provisoire unique s\'affichera à l\'écran : vous le remettez au salarié en main propre. Il reçoit par e-mail le lien du site et son identifiant, puis choisit son mot de passe à la première connexion. Décochez pour un extra ou un intérimaire sans accès (vous pourrez le créer plus tard).</div></div>' +
       '<div class="err" id="as-err" role="alert"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary" type="submit">Ajouter</button></div></div></form>';
     var f = dlg.querySelector('#as');
     f.addEventListener('submit', async function (e) {
@@ -1631,18 +1652,19 @@
       if (!v('as-name')) { err.textContent = 'Indiquez le nom du salarié.'; return; }
       if (!st.services.length && v('as-role') !== 'admin') { err.textContent = 'Cochez au moins un service.'; return; }
       if (!st.hire_date) { err.textContent = 'La date d\'entrée est obligatoire.'; return; }
-      if (v('as-pw') && v('as-pw').length < 8) { err.textContent = 'Le mot de passe doit contenir au moins 8 caractères.'; return; }
-      if (v('as-pw') && !v('as-email')) { err.textContent = 'Indiquez l\'e-mail de connexion.'; return; }
+      var access = f.querySelector('#as-access').checked;
+      if (access && !v('as-email')) { err.textContent = 'Indiquez l\'e-mail de connexion (ou décochez « Créer son accès »).'; return; }
       btn.disabled = true;
       try {
-        var made = await Store.addStaff(Object.assign(st, { full_name: v('as-name'), email: v('as-email'), password: v('as-pw') || null, role: v('as-role') }));
+        var made = await Store.addStaff(Object.assign(st, { full_name: v('as-name'), email: v('as-email'), access: access, role: v('as-role') }));
         S.profiles = await Store.profiles();
         var nr = 0;
         if ((st.weekly_rest || []).length && v('as-role') !== 'admin') {
           var np = (made && made.id && S.profiles.find(function (x) { return x.id === made.id; })) || S.profiles.find(function (x) { return (v('as-email') && x.email === v('as-email').toLowerCase()) || x.full_name === v('as-name'); });
           if (np && feat('rest_auto')) nr = await placeRest(np.id, st.hire_date > today() ? st.hire_date : today());
         }
-        toast((v('as-pw') ? 'Compte créé : ' + v('as-email') : 'Salarié ajouté (sans accès)') + (nr ? ' · ' + nr + ' jours de repos posés dans le planning' : '')); dlg.close(); render();
+        toast((access ? 'Compte créé : ' + v('as-email') : 'Salarié ajouté (sans accès)') + (nr ? ' · ' + nr + ' jours de repos posés dans le planning' : '')); render();
+        if (access && made && made.temp_password) showCode({ full_name: v('as-name'), email: v('as-email') }, Object.assign({ created: true }, made)); else dlg.close();
       } catch (ex) { err.textContent = ex.message; }
       finally { btn.disabled = false; }
     });
@@ -1662,8 +1684,7 @@
       (p.has_account ? '' : '<label class="f">E-mail (pour créer ou relier un compte)<input type="email" id="pf-email" value="' + esc(p.email || '') + '"></label>') +
       (p.role === 'developer' ? '' : staffFields(p, 'pf')) +
       (pwRankOk(p) ? '<div class="panel form access"><h3>Accès à l\'application</h3><div class="small">' + (p.has_account ? 'Identifiant : <b>' + esc(p.email) + '</b>' : 'Pas encore d\'accès' + (p.email ? ' (e-mail : ' + esc(p.email) + ')' : '')) + '</div>' +
-      '<div class="row"><input type="text" id="pf-pw" autocomplete="off" placeholder="' + (p.has_account ? 'Nouveau mot de passe' : 'Mot de passe pour créer l\'accès') + ' (8 caractères min.)" style="flex:1;min-width:200px">' +
-      '<button type="button" class="btn sm" data-setpw="1">' + (p.has_account ? 'Redéfinir' : 'Créer l\'accès') + '</button></div><div class="small" id="pf-pwmsg"></div></div>' : '') +
+      '<div class="row"><button type="button" class="btn sm" data-setpw="1">' + (p.has_account ? 'Nouveau code provisoire' : 'Créer l\'accès') + '</button></div><div class="small" id="pf-pwmsg"></div></div>' : '') +
       (p.role === 'developer' ? '' : '<label class="f">Compte<select id="pf-active"><option value="true"' + (p.active ? ' selected' : '') + '>Actif</option><option value="false"' + (p.active ? '' : ' selected') + '>Désactivé (ne peut plus se connecter, historique conservé)</option></select></label>') +
       (admin && p.role !== 'developer' ? '<div class="two"><label class="f">Solde CP (jours ouvrables)<input type="number" id="pf-cp" step="0.5" value="' + p.cp_balance + '"></label><label class="f">Jours d\'ancienneté<input type="number" id="pf-sen" step="0.5" value="' + (p.seniority_balance || 0) + '"></label></div>' +
         '<label class="f">Correction du compteur d\'heures supp (minutes, + ou −)<input type="number" id="pf-recup" step="1" value="' + (p.recup_adjust_min || 0) + '"></label>' +
@@ -1672,13 +1693,13 @@
       '<div class="err" id="pf-err" role="alert"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form>';
     var f = dlg.querySelector('#pf');
     if (f.querySelector('[data-setpw]')) f.querySelector('[data-setpw]').addEventListener('click', async function () {
-      var pw = f.querySelector('#pf-pw').value.trim(), out = f.querySelector('#pf-pwmsg');
-      if (pw.length < 8) { out.textContent = 'Le mot de passe doit contenir au moins 8 caractères.'; out.style.color = 'var(--bad)'; return; }
+      var out = f.querySelector('#pf-pwmsg');
       if (!p.has_account) {
-        var em = (f.querySelector('#pf-email') || {}).value;
-        if (em && em.trim() && em.trim() !== (p.email || '')) { try { await Store.updateProfile(p.id, { email: em.trim() }); p.email = em.trim(); } catch (ex) { out.textContent = ex.message; out.style.color = 'var(--bad)'; return; } }
-      }
-      try { await Store.setUserPassword(p.id, pw); out.style.color = 'var(--ok)'; out.textContent = (p.has_account ? 'Mot de passe redéfini.' : 'Accès créé.') + ' Communiquez-le à ' + (p.full_name || 'la personne') + '.'; f.querySelector('#pf-pw').value = ''; S.profiles = await Store.profiles(); render(); }
+        var em = ((f.querySelector('#pf-email') || {}).value || '').trim();
+        if (!em && !p.email) { out.textContent = 'Indiquez d\'abord son e-mail.'; out.style.color = 'var(--bad)'; return; }
+        if (em && em !== (p.email || '')) { try { await Store.updateProfile(p.id, { email: em }); p.email = em; } catch (ex) { out.textContent = ex.message; out.style.color = 'var(--bad)'; return; } }
+      } else if (!confirm('Générer un nouveau code provisoire pour ' + (p.full_name || p.email) + ' ? Son mot de passe actuel ne fonctionnera plus.')) return;
+      try { var r = await Store.setUserPassword(p.id); S.profiles = await Store.profiles(); render(); showCode(p, r); }
       catch (ex) { out.textContent = ex.message; out.style.color = 'var(--bad)'; }
     });
     f.addEventListener('submit', async function (e) {
@@ -2222,7 +2243,7 @@
       err.textContent = '';
       if (a.length < 8) { err.textContent = 'Le mot de passe doit contenir au moins 8 caractères.'; return; }
       if (a !== b2) { err.textContent = 'Les deux mots de passe ne correspondent pas.'; return; }
-      try { await Store.updatePassword(a); toast('Mot de passe changé'); pf.reset(); } catch (ex) { err.textContent = ex.message; }
+      try { await Store.updatePassword(a); if (Store.pwChanged) await Store.pwChanged(); toast('Mot de passe changé'); pf.reset(); } catch (ex) { err.textContent = ex.message; }
     };
     dlg.showModal();
   }
@@ -2245,19 +2266,22 @@
   function authView(msg) {
     var m = S.authMode, demo = Store.mode === 'demo';
     if (m === 'code') return codeView(msg);
-    var title = { login: 'Connexion', signup: 'Créer mon compte', forgot: 'Mot de passe oublié', recovery: 'Nouveau mot de passe' }[m];
+    var title = { login: 'Connexion', signup: 'Créer mon compte', forgot: 'Mot de passe oublié', recovery: 'Nouveau mot de passe', firstpw: 'Choisissez votre mot de passe' }[m];
     var fields = '';
     if (m === 'signup') fields += '<label class="f">Prénom et nom<input type="text" id="au-name" autocomplete="name" required maxlength="60"></label>';
-    if (m !== 'recovery') fields += '<label class="f">E-mail<input type="email" id="au-email" autocomplete="username" required value="' + esc(S.lastEmail || '') + '"></label>';
+    if (m === 'firstpw') fields += '<p class="small" style="margin:0">Bienvenue ' + esc((S.me && S.me.full_name) || '') + '. Vous vous êtes connecté avec un code provisoire : choisissez maintenant votre propre mot de passe (8 caractères minimum).</p>' +
+      '<label class="f">Nouveau mot de passe<input type="password" id="au-pw" autocomplete="new-password" required></label><label class="f">Confirmer<input type="password" id="au-pw2" autocomplete="new-password" required></label>';
+    if (m !== 'recovery' && m !== 'firstpw') fields += '<label class="f">E-mail<input type="email" id="au-email" autocomplete="username" required value="' + esc(S.lastEmail || '') + '"></label>';
     if (m === 'login' || m === 'signup' || m === 'recovery') fields += '<label class="f">Mot de passe<input type="password" id="au-pw" autocomplete="' + (m === 'login' ? 'current-password' : 'new-password') + '" required></label>';
-    var sw = demo ? '' : m === 'login' ? '<button type="button" class="linkish" data-mode="forgot">Mot de passe oublié</button>'
+    var sw = m === 'firstpw' ? '<button type="button" class="linkish" data-logout="1">Se déconnecter</button>' : demo ? '' : m === 'login' ? '<button type="button" class="linkish" data-mode="forgot">Mot de passe oublié</button>'
       : '<button type="button" class="linkish" data-mode="login">Retour à la connexion</button>';
     app.innerHTML = '<div class="auth"><form class="card form" id="auth" novalidate><div><h1>HPG</h1><p class="muted" style="margin:4px 0 0">Hotelplanning · planning et heures de l\'équipe</p></div><h3>' + title + '</h3>' + fields +
       '<div class="err" id="au-err" role="alert">' + esc(msg && msg.err || '') + '</div>' + (msg && msg.ok ? '<div class="banner info">' + esc(msg.ok) + '</div>' : '') +
-      '<button class="btn primary" type="submit">' + { login: 'Continuer', signup: 'Créer mon compte', forgot: 'Recevoir le lien', recovery: 'Enregistrer' }[m] + '</button>' +
+      '<button class="btn primary" type="submit">' + { login: 'Continuer', signup: 'Créer mon compte', forgot: 'Recevoir le lien', recovery: 'Enregistrer', firstpw: 'Enregistrer et continuer' }[m] + '</button>' +
       (sw ? '<div class="auth-sw">' + sw + '</div>' : '') + '<p class="hint" id="au-hint" style="margin:0">Votre identifiant et votre mot de passe vous sont remis par votre responsable.</p></form></div>';
     var f = document.getElementById('auth');
     f.addEventListener('click', function (e) {
+      if (e.target.closest('[data-logout]')) { S.authMode = 'login'; logout(); return; }
       var b = e.target.closest('[data-mode]'); if (b) { S.authMode = b.dataset.mode; authView(); return; }
       var d = e.target.closest('[data-fill]'); if (d) { var v = d.dataset.fill.split('|'); f.querySelector('#au-email').value = v[0]; f.querySelector('#au-pw').value = v[1]; }
     });
@@ -2278,6 +2302,13 @@
           var direct = await Store.signUp(v('au-email'), f.querySelector('#au-pw').value, v('au-name'));
           if (direct) boot(); else { S.authMode = 'login'; authView({ ok: 'Compte créé. Ouvrez le lien reçu par e-mail pour confirmer votre adresse, puis connectez-vous.' }); }
         } else if (m === 'forgot') { await Store.resetPassword(v('au-email')); authView({ ok: 'Si un compte existe pour cette adresse, un lien de réinitialisation vient d\'être envoyé.' }); }
+        else if (m === 'firstpw') {
+          var p1 = f.querySelector('#au-pw').value, p2 = f.querySelector('#au-pw2').value;
+          if (p1.length < 8) throw new Error('Le mot de passe doit contenir au moins 8 caractères.');
+          if (p1 !== p2) throw new Error('Les deux mots de passe ne sont pas identiques.');
+          if (/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(p1)) throw new Error('Choisissez un mot de passe personnel, différent du code provisoire.');
+          await Store.updatePassword(p1); await Store.pwChanged(); S.me.must_change_pw = false; S.authMode = 'login'; toast('Mot de passe enregistré'); boot();
+        }
         else if (m === 'recovery') {
           var pw = f.querySelector('#au-pw').value; if (pw.length < 8) throw new Error('Le mot de passe doit contenir au moins 8 caractères.');
           await Store.updatePassword(pw); history.replaceState(null, '', location.pathname); S.authMode = 'login'; boot();
@@ -2601,6 +2632,7 @@
       S.me = await Store.init();
       if (location.hash.indexOf('type=recovery') >= 0 && S.me) { S.authMode = 'recovery'; return authView(); }
       if (!S.me) return authView();
+      if (S.me.must_change_pw) { S.authMode = 'firstpw'; return authView(); }
       var base = await Promise.all([Store.services(), Store.templates(), Store.profiles(), Store.settings(), Store.companies ? Store.companies().catch(function () { return []; }) : []]);
       S.services = base[0]; S.templates = base[1]; S.profiles = base[2]; S.settings = base[3] || {}; S.companies = base[4];
       applyDayTypes(); C.setRules(S.settings);
@@ -2621,7 +2653,7 @@
       if (!el.parentNode || el.querySelector('button, a, input, select, textarea')) return;
       var txt = el.textContent.replace(/\s+/g, ' ').trim(); if (!txt) return;
       var i = document.createElement('span');
-      i.className = 'info' + (el.tagName === 'P' || el.tagName === 'DIV' ? ' info-block' : '');
+      i.className = 'i-tip' + (el.tagName === 'P' || el.tagName === 'DIV' ? ' info-block' : '');
       i.tabIndex = 0; i.setAttribute('role', 'button'); i.setAttribute('aria-label', 'Aide : ' + txt); i.dataset.tip = txt; i.textContent = 'i';
       var h = el.previousElementSibling;
       if (h && /^H[1-4]$/.test(h.tagName)) { i.classList.remove('info-block'); h.appendChild(i); el.parentNode.removeChild(el); }   // à côté du titre
@@ -2636,11 +2668,11 @@
     tipEl.style.left = x + 'px'; tipEl.style.top = y + 'px';
   }
   function hideTip() { tipEl.hidden = true; }
-  document.addEventListener('mouseover', function (e) { var i = e.target.closest && e.target.closest('.info'); if (i) showTip(i); });
-  document.addEventListener('mouseout', function (e) { if (e.target.closest && e.target.closest('.info')) hideTip(); });
-  document.addEventListener('focusin', function (e) { if (e.target.classList && e.target.classList.contains('info')) showTip(e.target); });
-  document.addEventListener('focusout', function (e) { if (e.target.classList && e.target.classList.contains('info')) hideTip(); });
-  document.addEventListener('click', function (e) { var i = e.target.closest && e.target.closest('.info'); if (i) { e.preventDefault(); if (tipEl.hidden) showTip(i); else hideTip(); } else hideTip(); }, true);
+  document.addEventListener('mouseover', function (e) { var i = e.target.closest && e.target.closest('.i-tip'); if (i) showTip(i); });
+  document.addEventListener('mouseout', function (e) { if (e.target.closest && e.target.closest('.i-tip')) hideTip(); });
+  document.addEventListener('focusin', function (e) { if (e.target.classList && e.target.classList.contains('i-tip')) showTip(e.target); });
+  document.addEventListener('focusout', function (e) { if (e.target.classList && e.target.classList.contains('i-tip')) hideTip(); });
+  document.addEventListener('click', function (e) { var i = e.target.closest && e.target.closest('.i-tip'); if (i) { e.preventDefault(); if (tipEl.hidden) showTip(i); else hideTip(); } else hideTip(); }, true);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideTip(); });
   window.addEventListener('scroll', hideTip, true);
   new MutationObserver(function (muts) { muts.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.nodeType === 1) infoize(n); }); }); }).observe(document.body, { childList: true, subtree: true });
@@ -2662,7 +2694,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '48';
+  var APP_VERSION = '49';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {

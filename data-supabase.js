@@ -183,11 +183,12 @@
     deleteOwed: async function (id) { must(await sb.from('owed_days').delete().eq('id', id)); },
     /* Sans mot de passe : fiche seule (extra sans accès). Avec mot de passe : compte de connexion créé par la fonction manage-user. */
     addStaff: async function (p) {
-      if (!p.password) return must(await sb.rpc('add_staff', { p: p }));
+      if (!p.access) return must(await sb.rpc('add_staff', { p: p }));
       return manageUser(Object.assign({ action: 'create' }, p));
     },
     applyWeeklyRest: async function (emp, from, to) { return must(await sb.rpc('apply_weekly_rest', { p_emp: emp, p_from: from, p_to: to })); },
-    setUserPassword: async function (profileId, password) { return manageUser({ action: 'set_password', profile_id: profileId, password: password }); },
+    setUserPassword: async function (profileId) { return manageUser({ action: 'set_password', profile_id: profileId }); },
+    pwChanged: async function () { must(await sb.rpc('pw_changed')); },
     saveTemplate: async function (t) {
       var row = { name: t.name, start_time: t.start_time, end_time: t.end_time, color: t.color, sort: t.sort || 0, service_id: t.service_id || null, active: t.active !== false, rooms: t.rooms == null || t.rooms === '' ? null : +t.rooms, label: t.label || null, bg: t.bg || null, fg: t.bg ? (t.fg || '#000000') : null };
       if (t.id) return must(await sb.from('shift_templates').update(row).eq('id', t.id).select().single());

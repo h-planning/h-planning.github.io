@@ -41,6 +41,7 @@ alter table public.settings drop constraint if exists settings_company_fk;
 alter table public.settings add constraint settings_company_fk foreign key (id) references public.companies on delete cascade;
 alter table public.settings add column if not exists pointage_title text not null default 'HOTEL ROCHESTER CHAMPS ELYSEES';
 alter table public.settings add column if not exists rest_auto_months smallint not null default 3 check (rest_auto_months between 1 and 12);
+alter table public.profiles add column if not exists must_change_pw boolean not null default false;
 alter table public.profiles add column if not exists company_id smallint default 1 references public.companies on delete cascade;
 update public.profiles set company_id = 1 where company_id is null;
 alter table public.shift_templates add column if not exists rooms smallint check (rooms between 0 and 99);
@@ -85,6 +86,10 @@ $$ select coalesce(public.my_role() = 'developer', false) $$;
 create or replace function public.my_company() returns smallint
 language sql stable security definer set search_path = public as
 $$ select company_id from profiles where id = auth.uid() $$;
+
+create or replace function public.pw_changed() returns void
+language sql security definer set search_path = public as
+$$ update profiles set must_change_pw = false where id = auth.uid() $$;
 
 create or replace function public.svc_company(svc smallint) returns smallint
 language sql stable security definer set search_path = public as
