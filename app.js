@@ -1613,11 +1613,12 @@
   /* Champs communs (ajout / modification) : services, localisation, poste, repos, contrat */
   function staffFields(p, prefix) {
     var allowed = isAdmin() ? S.services.filter(function (s) { return !s.archived; }).map(function (s) { return s.id; }) : rightServices('team');
-    var mine = p.services && p.services.length ? p.services : [S.svc];
+    var mine = p.services && p.services.length ? p.services : p.role === 'admin' ? [] : [S.svc];
     var locs = []; S.services.forEach(function (s) { (s.locations || []).forEach(function (l) { if (locs.indexOf(l) < 0) locs.push(l); }); });
     var JR = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-    return '<div><span class="eyebrow">Services (un ou plusieurs)</span><div class="checks">' + allowed.map(function (sid) {
-        return '<label class="row"><input type="checkbox" name="' + prefix + '-svc" value="' + sid + '"' + (mine.indexOf(sid) >= 0 ? ' checked' : '') + '> ' + esc(svcName(sid)) + '</label>'; }).join('') + '</div></div>' +
+    return '<div class="svc-pick"><span class="eyebrow svc-lbl">' + (p.role === 'admin' ? 'Apparaît dans le planning de (facultatif)' : 'Services (un ou plusieurs)') + '</span><div class="checks">' + allowed.map(function (sid) {
+        return '<label class="row"><input type="checkbox" name="' + prefix + '-svc" value="' + sid + '"' + (mine.indexOf(sid) >= 0 ? ' checked' : '') + '> ' + esc(svcName(sid)) + '</label>'; }).join('') + '</div>' +
+        '<div class="small muted svc-admin"' + (p.role === 'admin' ? '' : ' hidden') + '>L\'administrateur gère tous les services de l\'établissement. Cochez seulement les plannings où il doit apparaître comme une ligne (ses shifts, ses repos) ; aucun coché = il n\'apparaît dans aucun planning.</div></div>' +
       '<div class="two"><label class="f">Localisation dans le service<select id="' + prefix + '-loc"><option value="">—</option>' + locs.map(function (l) { return '<option' + (l === p.location ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join('') + '</select></label>' +
       '<label class="f">Poste / fonction (case « Code » de la fiche de présence)<input type="text" id="' + prefix + '-job" maxlength="60" value="' + esc(p.job_title || '') + '" placeholder="Ex. : Responsable PDJ"></label></div>' +
       '<div><span class="eyebrow">Repos hebdomadaire habituel (1 ou 2 jours)</span><div class="row">' + JR.map(function (j, i) { return '<label class="row"><input type="checkbox" name="' + prefix + '-rest" value="' + (i + 1) + '"' + ((p.weekly_rest || []).indexOf(i + 1) >= 0 ? ' checked' : '') + '> ' + j + '</label>'; }).join('') + '</div></div>' +
@@ -1635,6 +1636,16 @@
     if (withPending) list = list.concat(['pending']);
     return list.map(function (r) { return '<option value="' + r + '"' + (r === sel ? ' selected' : '') + '>' + ROLES[r] + '</option>'; }).join('');
   }
+  /* rôle Administrateur : les services deviennent « apparaît dans le planning de » (facultatif, décochés par défaut) */
+  function roleSwitch(f, prefix) {
+    var sel = f.querySelector('#' + prefix + '-role'); if (!sel) return;
+    sel.addEventListener('change', function () {
+      var adm = sel.value === 'admin', lbl = f.querySelector('.svc-lbl'), h = f.querySelector('.svc-admin');
+      if (lbl) lbl.textContent = adm ? 'Apparaît dans le planning de (facultatif)' : 'Services (un ou plusieurs)';
+      if (h) h.hidden = !adm;
+      if (adm) f.querySelectorAll('input[name=' + prefix + '-svc]').forEach(function (x) { x.checked = false; });
+    });
+  }
   function openAddStaff() {
     dlg.innerHTML = '<form id="as" class="form" novalidate><div class="dlg-h"><h3>Ajouter un salarié</h3><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b">' +
       '<div class="two"><label class="f">NOM Prénom<input type="text" id="as-name" maxlength="60" required placeholder="DUPONT Marie"></label><label class="f">Rôle<select id="as-role">' + roleOptions('employee') + '</select></label></div>' +
@@ -1645,6 +1656,7 @@
       '<div class="hint">Un code provisoire unique s\'affichera à l\'écran : vous le remettez au salarié en main propre. Il reçoit par e-mail le lien du site et son identifiant, puis choisit son mot de passe à la première connexion. Décochez pour un extra ou un intérimaire sans accès (vous pourrez le créer plus tard).</div></div>' +
       '<div class="err" id="as-err" role="alert"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary" type="submit">Ajouter</button></div></div></form>';
     var f = dlg.querySelector('#as');
+    roleSwitch(f, 'as');
     f.addEventListener('submit', async function (e) {
       e.preventDefault();
       var v = function (i) { var el = f.querySelector('#' + i); return el ? el.value.trim() : null; }, err = f.querySelector('#as-err'), btn = f.querySelector('button[type=submit]');
@@ -1659,7 +1671,7 @@
         var made = await Store.addStaff(Object.assign(st, { full_name: v('as-name'), email: v('as-email'), access: access, role: v('as-role') }));
         S.profiles = await Store.profiles();
         var nr = 0;
-        if ((st.weekly_rest || []).length && v('as-role') !== 'admin') {
+        if ((st.weekly_rest || []).length && st.services.length) {
           var np = (made && made.id && S.profiles.find(function (x) { return x.id === made.id; })) || S.profiles.find(function (x) { return (v('as-email') && x.email === v('as-email').toLowerCase()) || x.full_name === v('as-name'); });
           if (np && feat('rest_auto')) nr = await placeRest(np.id, st.hire_date > today() ? st.hire_date : today());
         }
@@ -1692,6 +1704,7 @@
         : '<div class="hint">Les soldes sont tenus par la direction ; les jours dus se gèrent dans « Jours dus ».</div>') +
       '<div class="err" id="pf-err" role="alert"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form>';
     var f = dlg.querySelector('#pf');
+    roleSwitch(f, 'pf');
     if (f.querySelector('[data-setpw]')) f.querySelector('[data-setpw]').addEventListener('click', async function () {
       var out = f.querySelector('#pf-pwmsg');
       if (!p.has_account) {
@@ -1718,7 +1731,7 @@
       try {
         await Store.updateProfile(p.id, patch);
         var restChanged = patch.weekly_rest && (patch.weekly_rest.slice().sort().join() !== (p.weekly_rest || []).slice().sort().join());
-        var nr2 = restChanged && patch.role !== 'admin' && feat('rest_auto') ? await placeRest(p.id, today()) : 0;
+        var nr2 = restChanged && (patch.services || []).length && feat('rest_auto') ? await placeRest(p.id, today()) : 0;
         toast('Fiche mise à jour' + (restChanged ? ' · repos habituels mis à jour dans le planning' + (nr2 ? ' (' + nr2 + ' posés)' : '') : ''));
         S.profiles = await Store.profiles(); if (self) S.me = await Store.init(); dlg.close(); render();
       }
@@ -2405,7 +2418,7 @@
     'rest-month': async function () {
       var svc = S.svc, m = curMonth() + '-01', first = m > today() ? m : today(), last = C.addDays(C.addMonths(m, 1), -1), n = 0;
       if (first > last) { toast('Ce mois est déjà passé.', true); return; }
-      var team = teamOf(svc).filter(function (p) { return (p.weekly_rest || []).length && p.role !== 'admin'; });
+      var team = teamOf(svc).filter(function (p) { return (p.weekly_rest || []).length; });
       for (var i = 0; i < team.length; i++) n += await placeRest(team[i].id, first, last);
       toast(n ? n + ' jours de repos posés' : 'Les repos habituels sont déjà posés'); render();
     },
@@ -2694,7 +2707,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '50';
+  var APP_VERSION = '51';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
