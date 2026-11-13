@@ -293,7 +293,7 @@
         if (t[0] === 'presence') return '<button data-act="go" data-v="presence"' + (S.view === 'presence' ? ' aria-current="page"' : '') + '>' + t[2] + '<span>Présences</span></button>';
         return '<button data-act="go" data-v="' + t[0] + '"' + (S.view === t[0] ? ' aria-current="page"' : '') + '>' + t[2] + '<span>' + t[1] + '</span>' + c + '</button>';
       }).join('') + '</div></nav>' : '') +
-      '<main id="main"' + ((S.view === 'planning' && isBoss()) || S.view === 'equipe-planning' ? ' class="wide"' : '') + '>' + inner + '</main>';
+      '<main id="main"' + ((S.view === 'planning' && isBoss()) || S.view === 'equipe-planning' || S.view === 'parametres' ? ' class="wide"' : '') + '>' + inner + '</main>';
   }
   function notifPanel() {
     if (!S.notifs.length) return '<div class="notif-panel"><div class="empty">Aucune notification.</div></div>';
@@ -1867,7 +1867,7 @@
       '<div class="table-wrap" style="border:0"><table><thead><tr><th>Nom</th><th>Localisations</th><th title="Repère affiché dans les autres plannings pour un salarié présent dans plusieurs services">Repère</th><th>Ordre</th><th>Archivé</th><th></th></tr></thead><tbody>' +
       S.services.concat([{ id: '', name: '', locations: [], sort: S.services.length + 1 }]).map(function (sv) {
         var k = sv.id || 'new';
-        return '<tr><td><input type="text" id="sv-name-' + k + '" value="' + esc(sv.name) + '" placeholder="' + (sv.id ? '' : 'Nouveau service') + '"></td><td><input type="text" id="sv-loc-' + k + '" value="' + esc((sv.locations || []).join(', ')) + '" placeholder="Ex. : RECEP JOUR, RECEP NUIT"></td>' +
+        return '<tr><td><input type="text" id="sv-name-' + k + '" value="' + esc(sv.name) + '" placeholder="' + (sv.id ? '' : 'Nouveau service') + '"></td><td><input type="text" id="sv-loc-' + k + '" style="width:' + Math.max(34, (sv.locations || []).join(', ').length + 3) + 'ch" value="' + esc((sv.locations || []).join(', ')) + '" placeholder="Ex. : RECEP JOUR, RECEP NUIT"></td>' +
           (function () { var mk = sv.id ? markOf(sv.id) : { code: '', bg: '#E5E7EB', fg: '#374151' };
             return '<td><div class="row" style="flex-wrap:nowrap;gap:4px"><input type="text" id="sv-mc-' + k + '" value="' + esc(sv.mark_code || (sv.id ? mk.code : '')) + '" maxlength="4" style="width:52px" aria-label="Code"><input type="color" id="sv-mb-' + k + '" value="' + esc(mk.bg) + '" title="Fond" aria-label="Fond"><input type="color" id="sv-mf-' + k + '" value="' + esc(mk.fg) + '" title="Texte" aria-label="Texte"></div></td>'; })() +
           '<td><input type="number" id="sv-sort-' + k + '" value="' + (sv.sort || 0) + '" style="width:64px"></td><td>' + (sv.id ? '<input type="checkbox" id="sv-arch-' + k + '"' + (sv.archived ? ' checked' : '') + '>' : '') + '</td>' +
@@ -1912,7 +1912,7 @@
     var cat = CATS.some(function (c) { return c[0] === S.setCat; }) ? S.setCat : 'etab';
     var curCat = CATS.find(function (c) { return c[0] === cat; });
     return '<div class="page-head"><div><div class="eyebrow">Réservé à l\'administrateur</div><h2>Paramètres</h2><div class="small muted">Règles de l\'établissement, compteurs et droits des rôles' + (st.updated_at ? ' · modifiés le ' + stamp(new Date(st.updated_at)) : '') + '</div></div></div>' +
-            '<div class="set-layout"><nav class="set-nav" aria-label="Catégories de réglages">' + CATS.map(function (c) { return '<button type="button" data-act="set-cat" data-v="' + c[0] + '"' + (c[0] === cat ? ' aria-current="page"' : '') + '>' + c[2] + '<span>' + esc(c[1]) + '</span></button>'; }).join('') + '</nav>' +
+            '<div class="set-layout"><label class="set-pick"><span class="eyebrow">Catégorie de réglages</span><select data-change="set-cat" aria-label="Catégorie de réglages">' + CATS.map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === cat ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; }).join('') + '</select></label>' +
       '<div class="set-body"><h3 class="set-title">' + esc(curCat[1]) + '</h3><div class="scards' + (['services', 'shifts', 'conges'].indexOf(cat) >= 0 ? ' one' : '') + '">' + curCat[3] + '</div></div></div>';
   }
   function tplRow(t) {
@@ -2596,6 +2596,7 @@
   app.addEventListener('change', function (e) {
     var a = e.target.dataset.change;
     if (a === 'co-switch') { switchCompany(+e.target.value, S.view); return; }
+    if (a === 'set-cat') { S.setCat = e.target.value; render(); window.scrollTo(0, 0); return; }
     if (a === 'view-as') { if (e.target.value) enterPreview(e.target.value); else exitPreview(); return; }
     if (a === 'svc') { S.svc = +e.target.value; S.prEmp = null; S.armed = null; S.armedKey = null; render(); }
     if (a === 'tpl-svc') { S.tplSvc = e.target.value; render(); }
@@ -2750,7 +2751,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '53';
+  var APP_VERSION = '54';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
