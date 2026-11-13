@@ -32,6 +32,9 @@ insert into public.companies (id, name, legal_name, city) values (1, 'Hôtel Roc
 select setval(pg_get_serial_sequence('public.companies', 'id'), 1);
 
 alter table public.companies add column if not exists features jsonb not null default '{}';
+alter table public.services add column if not exists mark_code text;
+alter table public.services add column if not exists mark_bg text;
+alter table public.services add column if not exists mark_fg text;
 alter table public.services add column if not exists company_id smallint not null default 1 references public.companies on delete cascade;
 alter table public.services drop constraint if exists services_name_key;
 alter table public.services drop constraint if exists services_company_name_key;
@@ -42,6 +45,8 @@ alter table public.settings add constraint settings_company_fk foreign key (id) 
 alter table public.settings add column if not exists pointage_title text not null default 'HOTEL ROCHESTER CHAMPS ELYSEES';
 alter table public.settings add column if not exists rest_auto_months smallint not null default 3 check (rest_auto_months between 1 and 12);
 alter table public.profiles add column if not exists must_change_pw boolean not null default false;
+alter table public.profiles add column if not exists svc_locations jsonb not null default '{}';
+update public.profiles set svc_locations = jsonb_build_object(service_id::text, location) where location is not null and service_id is not null and svc_locations = '{}';
 alter table public.profiles add column if not exists company_id smallint default 1 references public.companies on delete cascade;
 update public.profiles set company_id = 1 where company_id is null;
 alter table public.shift_templates add column if not exists rooms smallint check (rooms between 0 and 99);
@@ -395,6 +400,9 @@ begin
     new.start_time := null; new.end_time := null; new.break_min := null; new.template_id := null;
   end if;
   if not (new.kind in ('ferie','recup') or (new.kind = 'work' and new.jour_rendu)) then new.owed_id := null; end if;
+  if new.extra_pay and new.jour_sup then
+    raise exception 'Cochez « Extra à payer » ou « Jour supplémentaire à récupérer », pas les deux.';
+  end if;
 
   -- retirer l'origine d'une ligne déjà soldée (jour à rendre, jour sup) est refusé
   if tg_op = 'UPDATE' and ((old.kind = 'rendre' and new.kind <> 'rendre') or (old.jour_sup and not new.jour_sup)
@@ -761,6 +769,7 @@ begin
     role           = coalesce(p->>'role', role),
     service_id     = newsvc,
     location       = case when p ? 'location' then nullif(p->>'location', '') else location end,
+    svc_locations  = case when jsonb_typeof(p->'svc_locations') = 'object' then p->'svc_locations' else svc_locations end,
     job_title      = case when p ? 'job_title' then nullif(p->>'job_title', '') else job_title end,
     weekly_rest    = case when p ? 'weekly_rest' then (select coalesce(array_agg(x::smallint), '{}') from jsonb_array_elements_text(p->'weekly_rest') x) else weekly_rest end,
     contract_hours = coalesce((p->>'contract_hours')::numeric, contract_hours),
@@ -797,8 +806,9 @@ begin
   end if;
   if coalesce(trim(p->>'full_name'), '') = '' then raise exception 'Indiquez le nom du salarié.'; end if;
   if nullif(p->>'hire_date', '') is null then raise exception 'La date d''entrée est obligatoire.'; end if;
-  insert into profiles (company_id, email, has_account, full_name, role, service_id, location, job_title, weekly_rest, contract_type, contract_hours, hire_date)
-  values (public.my_company(), nullif(lower(trim(p->>'email')), ''), false, trim(p->>'full_name'), r, svc, nullif(p->>'location', ''), nullif(p->>'job_title', ''),
+  insert into profiles (company_id, email, has_account, full_name, role, service_id, location, svc_locations, job_title, weekly_rest, contract_type, contract_hours, hire_date)
+  values (public.my_company(), nullif(lower(trim(p->>'email')), ''), false, trim(p->>'full_name'), r, svc, nullif(p->>'location', ''),
+          case when jsonb_typeof(p->'svc_locations') = 'object' then p->'svc_locations' else '{}' end, nullif(p->>'job_title', ''),
           (select coalesce(array_agg(x::smallint), '{}') from jsonb_array_elements_text(coalesce(p->'weekly_rest', '[]')) x),
           coalesce(p->>'contract_type', 'extra'), coalesce((p->>'contract_hours')::numeric, 39), (p->>'hire_date')::date)
   returning * into t;
@@ -1061,6 +1071,19 @@ language sql stable security definer set search_path = public as $$
          or exists (select 1 from profile_services ps where ps.profile_id = t.id and public.staff_of(ps.service_id))))
      or (public.my_role() = 'employee' and public.employee_right('team_planning')
          and exists (select 1 from profile_services ps where ps.profile_id = t.id and public.in_my_services(ps.service_id)))))
+$$;
+
+create or replace function public.other_service_days(p_svc smallint, p_from date, p_to date)
+returns table (employee_id uuid, day date, service_id smallint)
+language sql stable security definer set search_path = public as $$
+  select distinct s.employee_id, s.day, s.service_id
+  from shifts s
+  where public.staff_of(p_svc)
+    and s.day between p_from and p_to
+    and s.service_id <> p_svc
+    and s.kind = 'work'
+    and exists (select 1 from profile_services ps where ps.profile_id = s.employee_id and ps.service_id = p_svc)
+    and exists (select 1 from profile_services ps where ps.profile_id = s.employee_id and ps.service_id = s.service_id)
 $$;
 
 revoke execute on function public.accrue_cp_company(smallint, date) from public, anon, authenticated;

@@ -529,7 +529,7 @@
         if (s.id && !inCo(s.id)) fail('Service introuvable.');
         if (db.services.some(function (x) { return x.company_id === myCo() && x.name.toLowerCase() === nameT.toLowerCase() && x.id !== s.id; })) fail('Ce service existe déjà.');
         var locs = (s.locations || []).map(function (x) { return String(x).trim(); }).filter(Boolean);
-        if (s.id) { var row = db.services.find(function (x) { return x.id === s.id; }); Object.assign(row, { name: nameT, locations: locs, archived: !!s.archived, sort: s.sort != null ? +s.sort : row.sort }); if (s.staffing !== undefined) row.staffing = s.staffing; audit('services', row, 'UPDATE'); return row; }
+        if (s.id) { var row = db.services.find(function (x) { return x.id === s.id; }); Object.assign(row, { name: nameT, locations: locs, archived: !!s.archived, sort: s.sort != null ? +s.sort : row.sort }); if (s.staffing !== undefined) row.staffing = s.staffing; if (s.mark_code !== undefined) { row.mark_code = s.mark_code || null; row.mark_bg = s.mark_bg || null; row.mark_fg = s.mark_fg || null; } audit('services', row, 'UPDATE'); return row; }
         var n = { id: Math.max.apply(null, db.services.map(function (x) { return x.id; }).concat(0)) + 1, company_id: myCo(), name: nameT, locations: locs, sort: db.services.filter(function (x) { return x.company_id === myCo(); }).length + 1, archived: false };
         db.services.push(n); audit('services', n, 'INSERT'); return n;
       });
@@ -685,7 +685,7 @@
         var email = (p.email || '').trim().toLowerCase() || null;
         if (email && db.profiles.some(function (x) { return x.email && x.email.toLowerCase() === email; })) fail('Un salarié existe déjà avec cet e-mail.');
         var row = { id: uid(), company_id: myCo(), full_name: p.full_name.trim(), email: email, has_account: access, must_change_pw: access && !p.password, role: r, services: services, service_id: services[0] || null,
-          location: p.location || null, job_title: p.job_title || null, weekly_rest: p.weekly_rest || [], contract_type: p.contract_type || 'extra',
+          location: p.location || null, svc_locations: p.svc_locations || {}, job_title: p.job_title || null, weekly_rest: p.weekly_rest || [], contract_type: p.contract_type || 'extra',
           contract_hours: +p.contract_hours || 39, hire_date: p.hire_date, cp_balance: 0, ferie_balance: 0, recup_days: 0, rendre_days: 0, seniority_balance: 0, recup_adjust_min: 0, active: true, last_sign_in_at: null };
         db.profiles.push(row); audit('profiles', row, 'INSERT');
         if (!access) return row;
@@ -705,6 +705,14 @@
         return staffOf(s.service_id) || (s.employee_id === me.id && (s.request_id || isPublished(s.service_id, s.day))) ||
           (role() === 'employee' && empRight('team_planning') && inMine(s.service_id) && isPublished(s.service_id, s.day) && canSee(profile(s.employee_id)));
       }).sort(function (a, b) { return (a.day + (a.start_time || '')).localeCompare(b.day + (b.start_time || '')); }));
+    },
+    otherServiceDays: function (svc, from, to) {
+      if (!staffOf(svc)) return ok([]);
+      var inS = function (pid, sid) { var p = profile(pid); return !!p && (p.services || []).indexOf(sid) >= 0; }, seen = {};
+      return ok(db.shifts.filter(function (s) {
+        if (s.day < from || s.day > to || s.service_id === svc || s.kind !== 'work' || !inS(s.employee_id, svc) || !inS(s.employee_id, s.service_id)) return false;
+        var k = s.employee_id + s.day + s.service_id; if (seen[k]) return false; return (seen[k] = true);
+      }).map(function (s) { return { employee_id: s.employee_id, day: s.day, service_id: s.service_id }; }));
     },
     saveShift: function (sh) { return run(function () { return writeShift(sh); }); },
     /* Remplace en une seule opération : supprime les éléments de la case puis pose le nouveau */

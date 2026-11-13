@@ -52,11 +52,16 @@ create table public.services (
   -- { "inputs": [{"key":"rochester","label":"Hôtel Rochester"},…], "combine": "sum", "tiers": [{"over":320,"n":8},…], "base": 4 }
   -- effectif requis = n du premier palier dont la valeur est strictement dépassée, sinon base
   staffing jsonb,
+  -- repère affiché dans les AUTRES plannings pour un salarié présent dans plusieurs services (ex. « R » rouge sur gris)
+  mark_code text, mark_bg text, mark_fg text,
   unique (company_id, name)
 );
 insert into public.services (name, locations, sort) values
   ('Réception', '{BACKOFFICE,RECEP JOUR,RECEP NUIT,EXTRA}', 1),
   ('Cafétéria', '{}', 2), ('Technique', '{}', 3), ('Lingerie', '{}', 4), ('Housekeeping', '{}', 5), ('Équipier', '{}', 6), ('Conciergerie', '{}', 7);
+update public.services set mark_code = 'R', mark_bg = '#D1D5DB', mark_fg = '#C62828' where name = 'Réception';
+update public.services set mark_code = 'C', mark_bg = '#FFE066', mark_fg = '#111111' where name = 'Conciergerie';
+update public.services set mark_code = 'Caf', mark_bg = '#C8F7C5', mark_fg = '#111111' where name = 'Cafétéria';
 -- Barèmes de l'hôtel : lingerie (chambres louées dans le groupe = total des 4 hôtels) et petit déjeuner (PDJ inclus, depuis le 01/04/2024)
 update public.services set staffing = '{"inputs":[{"key":"rochester","label":"Hôtel Rochester"},{"key":"demeure","label":"La Demeure"},{"key":"splendide","label":"Le Splendide"},{"key":"chateau","label":"Le Château"}],
   "combine":"sum","tiers":[{"over":320,"n":8},{"over":280,"n":7},{"over":210,"n":6},{"over":150,"n":5}],"base":4,"delivery":true,"extra":{"label":"Demande extra StaffHôtel","rooms":0,"location":null}}' where name = 'Lingerie';
@@ -124,7 +129,8 @@ create table public.profiles (
   full_name text not null default '',
   role text not null default 'pending' check (role in ('pending','employee','assistant','manager','admin','developer')),
   service_id smallint references public.services,  -- service principal (les autres dans profile_services)
-  location text,                                   -- localisation dans le service (BACKOFFICE, RECEP NUIT…)
+  location text,                                   -- localisation dans le service principal (BACKOFFICE, RECEP NUIT…)
+  svc_locations jsonb not null default '{}',       -- localisation dans CHAQUE service : {"1":"RECEP NUIT","7":"CONCIERGES"}
   job_title text,                                  -- poste / fonction (fiche de présence : case « Code »)
   weekly_rest smallint[] not null default '{}',    -- jours de repos habituels (1 = lundi … 7 = dimanche)
   contract_type text not null default 'cdi',
@@ -1114,6 +1120,7 @@ begin
     role           = coalesce(p->>'role', role),
     service_id     = newsvc,
     location       = case when p ? 'location' then nullif(p->>'location', '') else location end,
+    svc_locations  = case when jsonb_typeof(p->'svc_locations') = 'object' then p->'svc_locations' else svc_locations end,
     job_title      = case when p ? 'job_title' then nullif(p->>'job_title', '') else job_title end,
     weekly_rest    = case when p ? 'weekly_rest' then (select coalesce(array_agg(x::smallint), '{}') from jsonb_array_elements_text(p->'weekly_rest') x) else weekly_rest end,
     contract_hours = coalesce((p->>'contract_hours')::numeric, contract_hours),
@@ -1151,8 +1158,9 @@ begin
   end if;
   if coalesce(trim(p->>'full_name'), '') = '' then raise exception 'Indiquez le nom du salarié.'; end if;
   if nullif(p->>'hire_date', '') is null then raise exception 'La date d''entrée est obligatoire.'; end if;
-  insert into profiles (company_id, email, has_account, full_name, role, service_id, location, job_title, weekly_rest, contract_type, contract_hours, hire_date)
-  values (public.my_company(), nullif(lower(trim(p->>'email')), ''), false, trim(p->>'full_name'), r, svc, nullif(p->>'location', ''), nullif(p->>'job_title', ''),
+  insert into profiles (company_id, email, has_account, full_name, role, service_id, location, svc_locations, job_title, weekly_rest, contract_type, contract_hours, hire_date)
+  values (public.my_company(), nullif(lower(trim(p->>'email')), ''), false, trim(p->>'full_name'), r, svc, nullif(p->>'location', ''),
+          case when jsonb_typeof(p->'svc_locations') = 'object' then p->'svc_locations' else '{}' end, nullif(p->>'job_title', ''),
           (select coalesce(array_agg(x::smallint), '{}') from jsonb_array_elements_text(coalesce(p->'weekly_rest', '[]')) x),
           coalesce(p->>'contract_type', 'extra'), coalesce((p->>'contract_hours')::numeric, 39), (p->>'hire_date')::date)
   returning * into t;
@@ -1590,11 +1598,26 @@ create policy "push perso" on public.push_subscriptions for all to authenticated
 create policy "journal admin" on public.audit_log for select to authenticated using (public.is_admin());
 
 -- Les fonctions sensibles ne sont pas appelables sans être connecté
+-- Jours déjà travaillés dans un AUTRE service, pour les salariés présents dans plusieurs plannings :
+-- l'encadrement d'un planning voit seulement « tel jour, tel service » (pas l'horaire), même sans droit sur l'autre service.
+create or replace function public.other_service_days(p_svc smallint, p_from date, p_to date)
+returns table (employee_id uuid, day date, service_id smallint)
+language sql stable security definer set search_path = public as $$
+  select distinct s.employee_id, s.day, s.service_id
+  from shifts s
+  where public.staff_of(p_svc)
+    and s.day between p_from and p_to
+    and s.service_id <> p_svc
+    and s.kind = 'work'
+    and exists (select 1 from profile_services ps where ps.profile_id = s.employee_id and ps.service_id = p_svc)
+    and exists (select 1 from profile_services ps where ps.profile_id = s.employee_id and ps.service_id = s.service_id)
+$$;
+
 do $$ declare f text; begin
   foreach f in array array['publish_month(smallint, date)','unpublish_month(smallint, date)','decide_request(uuid, boolean, text)',
     'cancel_request(uuid)','update_profile(uuid, jsonb)','add_staff(jsonb)','accrue_cp(date)','accrue_seniority(date)',
     'credit_ferie(uuid[], numeric, date, text)','replace_cell(uuid[], jsonb)','audit_entries(int)','last_sign_ins()','ot_balance(uuid)',
-    'set_my_company(smallint)','save_company(jsonb)','apply_weekly_rest(uuid, date, date)','pw_changed()'] loop
+    'set_my_company(smallint)','save_company(jsonb)','apply_weekly_rest(uuid, date, date)','pw_changed()','other_service_days(smallint, date, date)'] loop
     execute 'revoke execute on function public.' || f || ' from anon, public';
     execute 'grant execute on function public.' || f || ' to authenticated';
   end loop;

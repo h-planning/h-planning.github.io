@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
       let created = false;
       const fiche = {
         full_name: String(b.full_name ?? "").trim(), role, service_id, company_id: company,
-        location: b.location || null, job_title: b.job_title || null, weekly_rest: Array.isArray(b.weekly_rest) ? b.weekly_rest : [],
+        location: b.location || null, svc_locations: b.svc_locations && typeof b.svc_locations === "object" ? b.svc_locations : {}, job_title: b.job_title || null, weekly_rest: Array.isArray(b.weekly_rest) ? b.weekly_rest : [],
         contract_type: b.contract_type ?? "cdi", contract_hours: Number(b.contract_hours) || 39, hire_date: b.hire_date,
       };
       let profileId = existing?.id;

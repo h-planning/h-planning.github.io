@@ -456,13 +456,31 @@
   function teamOf(svc) {
     return S.profiles.filter(function (p) { return (p.services || []).indexOf(svc) >= 0 && ['employee', 'assistant', 'manager', 'admin'].indexOf(p.role) >= 0 && p.active; })
       .sort(function (a, b) {
-        var la = locIndex(svc, a.service_id === svc ? a.location : null), lb = locIndex(svc, b.service_id === svc ? b.location : null);
+        var la = locIndex(svc, locOf(a, svc)), lb = locIndex(svc, locOf(b, svc));
         if (la !== lb) return la - lb;
         var ea = a.contract_type === 'extra' || a.contract_type === 'interim', eb = b.contract_type === 'extra' || b.contract_type === 'interim';
         return ea !== eb ? (ea ? 1 : -1) : (a.full_name || '').localeCompare(b.full_name || '');
       });
   }
-  function groupOf(p, svc) { return p.service_id === svc && p.location ? p.location : (p.service_id !== svc ? 'Renfort (autre service)' : ''); }
+  /* localisation du salarié DANS un service donné (chaque service a la sienne) ; à défaut, l'ancienne localisation du service principal */
+  function locOf(p, svc) { var m = p.svc_locations || {}; return m[svc] || m[String(svc)] || (p.service_id === svc ? p.location : null) || null; }
+  /* Repère d'un service dans les AUTRES plannings (salariés présents dans plusieurs services) : code + couleurs réglables
+     dans Paramètres → Services ; valeurs par défaut pour les services de l'hôtel. */
+  var MARK_DEF = { 'réception': ['R', '#D1D5DB', '#C62828'], 'conciergerie': ['C', '#FFE066', '#111111'], 'cafétéria': ['Caf', '#C8F7C5', '#111111'] };
+  function markOf(sid) {
+    var sv = S.services.find(function (x) { return x.id === sid; }) || {}, d = MARK_DEF[(sv.name || '').toLowerCase()] || [(sv.name || '?').slice(0, 2), '#E5E7EB', '#374151'];
+    return { code: sv.mark_code || d[0], bg: sv.mark_bg || d[1], fg: sv.mark_fg || d[2], name: sv.name || '' };
+  }
+  function xMarks(emp, day) { var m = (S.cache.xmarks || {})[emp]; return (m && m[day]) || []; }
+  function xMarkHtml(emp, day) {
+    return xMarks(emp, day).map(function (sid) { var m = markOf(sid); return '<span class="xmark" style="background:' + esc(m.bg) + ';color:' + esc(m.fg) + '" title="' + esc('Déjà au planning ' + m.name + ' ce jour-là') + '">' + esc(m.code) + '</span>'; }).join('');
+  }
+  async function loadXMarks(svc, first, last) {
+    S.cache.xmarks = {};
+    if (role() === 'employee' || !Store.otherServiceDays) return;
+    try { (await Store.otherServiceDays(svc, first, last)).forEach(function (r) { var e = S.cache.xmarks[r.employee_id] = S.cache.xmarks[r.employee_id] || {}; (e[r.day] = e[r.day] || []).indexOf(r.service_id) < 0 && e[r.day].push(r.service_id); }); } catch (e) {}
+  }
+  function groupOf(p, svc) { var l = locOf(p, svc); return l || (p.service_id !== svc ? 'Renfort (autre service)' : ''); }
   function counters(p) { return 'CP ' + num(p.cp_balance) + ' j · fériés ' + num(p.ferie_balance || 0) + ' · ancienneté ' + num(p.seniority_balance || 0) + ' · à récupérer ' + num(p.recup_days || 0) + ' · à rendre ' + num(p.rendre_days || 0); }
   function contractPill(p) {
     if (['cdi', 'cdd'].indexOf(p.contract_type) < 0) return '<span class="pill brass">' + esc(CONTRATS[p.contract_type]) + '</span>';
@@ -600,6 +618,7 @@
     var cfg = role() === 'employee' ? null : staffingCfg(svc);
     var res = await Promise.all([Store.shifts(C.addDays(first, -1), C.addDays(last, 1), { serviceId: svc }), Store.publishedMonths(svc), can('overtime', svc) ? Store.overtime(first, last, { serviceId: svc }) : [], role() !== 'employee' ? Store.staffingValues(svc, C.addDays(first, -2), last) : []]);
     var around = res[0], shifts = around.filter(function (s) { return s.day >= first && s.day <= last; });
+    await loadXMarks(svc, first, last);
     var pubs = res[1].map(function (p) { return p.month; }), published = pubs.indexOf(first) >= 0, team = teamOf(svc);
     S.cache.staffVals = {}; res[3].forEach(function (v) { (S.cache.staffVals[v.day] = S.cache.staffVals[v.day] || {})[v.key] = v.value; });
     if (role() === 'employee') team = team.filter(function (p) { return shifts.some(function (s) { return s.employee_id === p.id; }) || p.id === S.me.id; });
@@ -625,7 +644,7 @@
       var cells = days.map(function (d) {
         var ds = mine.filter(function (s) { return s.day === d; }), dw = C.dow(d);
         return '<td class="cell mcell' + (dw === 0 || dw === 6 ? ' we' : '') + '"' + (ro ? '' : ' tabindex="0" data-act="cell"') + ' data-emp="' + p.id + '" data-day="' + d + '" aria-label="' + esc(p.full_name) + ', ' + dayLong(d) + '">' +
-          ds.map(function (s) { return miniChip(s, ro ? 'tabindex="-1"' : 'data-act="edit" data-id="' + s.id + '"' + (s.request_id ? '' : ' data-drag="move"')); }).join('') + '</td>';
+          ds.map(function (s) { return miniChip(s, ro ? 'tabindex="-1"' : 'data-act="edit" data-id="' + s.id + '"' + (s.request_id ? '' : ' data-drag="move"')); }).join('') + xMarkHtml(p.id, d) + '</td>';
       }).join('');
       var g = groupOf(p, svc), gr = '';
       if (g !== grp) { grp = g; if (g) gr = groupRow(g, days.length + 2); }
@@ -1322,7 +1341,7 @@
       '<button class="btn brass" data-act="pt-export"' + (team.length ? '' : ' disabled') + '>' + ICON.pdf + ' Excel (.xlsx)</button></div></div>' +
       '<p class="hint">Export annuel au format de la fiche de pointage de l\'hôtel : un onglet par salarié (' + ((S.settings.cp_contracts || []).map(function (k) { return CONTRATS[k]; }).join(', ')) + '), chaque onglet s\'imprime sur une seule page. Les 12 mois, semaines du dimanche au samedi, entrée et sortie de chaque jour (un jour de repos affiche OFF, un congé le nom de la journée, sur les deux cases fusionnées), total d\'heures par semaine et par mois, et une case Signature par mois.</p>' +
       '<div class="table-wrap"><table><thead><tr><th>Salarié</th><th>Contrat</th><th>Localisation</th><th>Poste</th></tr></thead><tbody>' +
-      (team.length ? team.map(function (p) { return '<tr><td>' + esc(p.full_name) + '</td><td>' + esc(CONTRATS[p.contract_type]) + '</td><td>' + esc(p.location || '') + '</td><td>' + esc(p.job_title || '') + '</td></tr>'; }).join('') : '<tr><td colspan="4" class="empty">Aucun salarié concerné.</td></tr>') +
+      (team.length ? team.map(function (p) { return '<tr><td>' + esc(p.full_name) + '</td><td>' + esc(CONTRATS[p.contract_type]) + '</td><td>' + esc(locOf(p, svc) || '') + '</td><td>' + esc(p.job_title || '') + '</td></tr>'; }).join('') : '<tr><td colspan="4" class="empty">Aucun salarié concerné.</td></tr>') +
       '</tbody></table></div>';
   }
   /* Fiche de pointage annuelle, au format de l'hôtel (modele-pointage.js) : une feuille = un salarié = une page,
@@ -1534,7 +1553,7 @@
     function row(p) {
       var acc = p.has_account ? '<span class="pill ok" title="' + esc(sinceTxt(last[p.id])) + '">accès actif</span>' : '<span class="pill neutral">sans accès</span>';
       return '<div class="item"><div><div class="title">' + esc(p.full_name || p.email) + ' ' + contractPill(p) + (p.active ? '' : ' <span class="pill neutral">désactivé</span>') + ' ' + acc + '</div>' +
-        '<div class="sub">' + esc(CONTRATS[p.contract_type]) + ' · ' + ROLES[p.role] + ' · ' + esc((p.services || []).map(svcName).join(' + ') || '—') + (p.location ? ' · ' + esc(p.location) : '') + (p.job_title ? ' · ' + esc(p.job_title) : '') + ' · ' + esc(p.email || 'pas d\'e-mail') + '</div>' +
+        '<div class="sub">' + esc(CONTRATS[p.contract_type]) + ' · ' + ROLES[p.role] + ' · ' + esc((p.services || []).map(svcName).join(' + ') || '—') + ((p.services || []).map(function (s) { var l = locOf(p, s); return l ? ((p.services || []).length > 1 ? svcName(s) + ' : ' : '') + l : ''; }).filter(Boolean).map(function (x) { return ' · ' + esc(x); }).join('')) + (p.job_title ? ' · ' + esc(p.job_title) : '') + ' · ' + esc(p.email || 'pas d\'e-mail') + '</div>' +
         '<div class="sub">' + (p.hire_date ? 'Entré le ' + p.hire_date.split('-').reverse().join('/') : '<span style="color:var(--bad)">date d\'entrée manquante</span>') + (p.has_account ? ' · ' + sinceTxt(last[p.id]) : '') + '</div>' +
         '<div class="counters"><span><b>' + num(p.cp_balance) + '</b> CP</span><span><b>' + num(p.ferie_balance || 0) + '</b> fériés</span><span><b>' + num(p.seniority_balance || 0) + '</b> ancienn.</span><span><b>' + num(p.recup_days || 0) + '</b> à récup.</span><span' + ((p.rendre_days || 0) > 0 ? ' class="over"' : '') + '><b>' + num(p.rendre_days || 0) + '</b> à rendre</span></div></div>' +
         '<div class="acts">' + (editable(p) ? '<button class="btn sm" data-act="edit-profile" data-id="' + p.id + '">Modifier</button>' : '') + (canSetPw(p) ? '<button class="btn sm" data-act="set-pw" data-id="' + p.id + '" title="Changer le mot de passe (mot de passe oublié)">Mot de passe</button>' : '') + (svcOwedRight(p) ? '<button class="btn sm" data-act="owed" data-id="' + p.id + '">Jours dus</button>' : '') + '</div></div>';
@@ -1625,8 +1644,12 @@
     return '<div class="svc-pick"><span class="eyebrow svc-lbl">' + (p.role === 'admin' ? 'Apparaît dans le planning de (facultatif)' : 'Services (un ou plusieurs)') + '</span><div class="checks">' + allowed.map(function (sid) {
         return '<label class="row"><input type="checkbox" name="' + prefix + '-svc" value="' + sid + '"' + (mine.indexOf(sid) >= 0 ? ' checked' : '') + '> ' + esc(svcName(sid)) + '</label>'; }).join('') + '</div>' +
         '<div class="small muted svc-admin"' + (p.role === 'admin' ? '' : ' hidden') + '>L\'administrateur gère tous les services de l\'établissement. Cochez seulement les plannings où il doit apparaître comme une ligne (ses shifts, ses repos) ; aucun coché = il n\'apparaît dans aucun planning.</div></div>' +
-      '<div class="two"><label class="f">Localisation dans le service<select id="' + prefix + '-loc"><option value="">—</option>' + locs.map(function (l) { return '<option' + (l === p.location ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join('') + '</select></label>' +
-      '<label class="f">Poste / fonction (case « Code » de la fiche de présence)<input type="text" id="' + prefix + '-job" maxlength="60" value="' + esc(p.job_title || '') + '" placeholder="Ex. : Responsable PDJ"></label></div>' +
+      '<div class="svc-locs"><span class="eyebrow">Localisation dans chaque service</span><div class="two">' + allowed.filter(function (sid) { var sv = S.services.find(function (x) { return x.id === sid; }); return sv && (sv.locations || []).length; }).map(function (sid) {
+        var sv = S.services.find(function (x) { return x.id === sid; }), cur = locOf(p, sid);
+        return '<label class="f" data-locsvc="' + sid + '"' + (mine.indexOf(sid) >= 0 ? '' : ' hidden') + '>' + esc(sv.name) + '<select id="' + prefix + '-loc-' + sid + '"><option value="">—</option>' +
+          sv.locations.map(function (l) { return '<option' + (l === cur ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join('') + '</select></label>';
+      }).join('') + '</div></div>' +
+      '<div class="two"><label class="f">Poste / fonction (case « Code » de la fiche de présence)<input type="text" id="' + prefix + '-job" maxlength="60" value="' + esc(p.job_title || '') + '" placeholder="Ex. : Responsable PDJ"></label></div>' +
       '<div><span class="eyebrow">Repos hebdomadaire habituel (1 ou 2 jours)</span><div class="row">' + JR.map(function (j, i) { return '<label class="row"><input type="checkbox" name="' + prefix + '-rest" value="' + (i + 1) + '"' + ((p.weekly_rest || []).indexOf(i + 1) >= 0 ? ' checked' : '') + '> ' + j + '</label>'; }).join('') + '</div></div>' +
       '<div class="two"><label class="f">Statut<select id="' + prefix + '-type">' + contractOptions(p.contract_type || 'cdi') + '</select></label><label class="f">Contrat (h / semaine)<input type="number" id="' + prefix + '-hours" min="1" max="48" step="0.5" value="' + (p.contract_hours || S.settings.default_contract_hours || 39) + '"></label></div>' +
       '<label class="f">Date d\'entrée dans l\'entreprise (obligatoire)<input type="date" id="' + prefix + '-hire" value="' + esc(p.hire_date || '') + '" required></label>';
@@ -1635,7 +1658,8 @@
     var v = function (i) { var el = f.querySelector('#' + prefix + '-' + i); return el ? el.value.trim() : ''; };
     var svcs = [].slice.call(f.querySelectorAll('input[name=' + prefix + '-svc]:checked')).map(function (x) { return +x.value; });
     var rest = [].slice.call(f.querySelectorAll('input[name=' + prefix + '-rest]:checked')).map(function (x) { return +x.value; });
-    return { services: svcs, service_id: svcs[0] || null, location: v('loc') || null, job_title: v('job') || null, weekly_rest: rest, contract_type: v('type'), contract_hours: +v('hours') || 39, hire_date: v('hire') || null };
+    var sl = {}; svcs.forEach(function (s) { var el = f.querySelector('#' + prefix + '-loc-' + s); if (el && el.value) sl[s] = el.value; });
+    return { services: svcs, service_id: svcs[0] || null, location: sl[svcs[0]] || null, svc_locations: sl, job_title: v('job') || null, weekly_rest: rest, contract_type: v('type'), contract_hours: +v('hours') || 39, hire_date: v('hire') || null };
   }
   function roleOptions(sel, withPending) {
     var list = isAdmin() ? ['employee', 'assistant', 'manager', 'admin'] : ['employee'];
@@ -1644,6 +1668,11 @@
   }
   /* rôle Administrateur : les services deviennent « apparaît dans le planning de » (facultatif, décochés par défaut) */
   function roleSwitch(f, prefix) {
+    /* la localisation de chaque service n'apparaît que si le service est coché */
+    f.addEventListener('change', function (e) {
+      if (e.target.name !== prefix + '-svc') return;
+      var l = f.querySelector('[data-locsvc="' + e.target.value + '"]'); if (l) l.hidden = !e.target.checked;
+    });
     var sel = f.querySelector('#' + prefix + '-role'); if (!sel) return;
     sel.addEventListener('change', function () {
       var adm = sel.value === 'admin', lbl = f.querySelector('.svc-lbl'), h = f.querySelector('.svc-admin');
@@ -1835,10 +1864,12 @@
         (isDev() ? tf('developer_email', 'Compte développeur (invisible dans les effectifs)', st.developer_email) : ''), 'sec')
     ];
     var svcCard = '<section class="panel form scard"><div class="scard-h"><span class="scard-i">' + ICON.users + '</span><div><h3>Services</h3><div class="small muted">Chaque service a son planning. Localisations = sous-groupes du planning (séparées par des virgules).</div></div></div>' +
-      '<div class="table-wrap" style="border:0"><table><thead><tr><th>Nom</th><th>Localisations</th><th>Ordre</th><th>Archivé</th><th></th></tr></thead><tbody>' +
+      '<div class="table-wrap" style="border:0"><table><thead><tr><th>Nom</th><th>Localisations</th><th title="Repère affiché dans les autres plannings pour un salarié présent dans plusieurs services">Repère</th><th>Ordre</th><th>Archivé</th><th></th></tr></thead><tbody>' +
       S.services.concat([{ id: '', name: '', locations: [], sort: S.services.length + 1 }]).map(function (sv) {
         var k = sv.id || 'new';
         return '<tr><td><input type="text" id="sv-name-' + k + '" value="' + esc(sv.name) + '" placeholder="' + (sv.id ? '' : 'Nouveau service') + '"></td><td><input type="text" id="sv-loc-' + k + '" value="' + esc((sv.locations || []).join(', ')) + '" placeholder="Ex. : RECEP JOUR, RECEP NUIT"></td>' +
+          (function () { var mk = sv.id ? markOf(sv.id) : { code: '', bg: '#E5E7EB', fg: '#374151' };
+            return '<td><div class="row" style="flex-wrap:nowrap;gap:4px"><input type="text" id="sv-mc-' + k + '" value="' + esc(sv.mark_code || (sv.id ? mk.code : '')) + '" maxlength="4" style="width:52px" aria-label="Code"><input type="color" id="sv-mb-' + k + '" value="' + esc(mk.bg) + '" title="Fond" aria-label="Fond"><input type="color" id="sv-mf-' + k + '" value="' + esc(mk.fg) + '" title="Texte" aria-label="Texte"></div></td>'; })() +
           '<td><input type="number" id="sv-sort-' + k + '" value="' + (sv.sort || 0) + '" style="width:64px"></td><td>' + (sv.id ? '<input type="checkbox" id="sv-arch-' + k + '"' + (sv.archived ? ' checked' : '') + '>' : '') + '</td>' +
           '<td><div class="row" style="flex-wrap:nowrap"><button type="button" class="btn sm" data-act="svc-save" data-id="' + sv.id + '">' + (sv.id ? 'Enregistrer' : 'Ajouter') + '</button>' + (sv.id ? '<button type="button" class="btn sm" data-act="svc-staffing" data-id="' + sv.id + '">Effectif requis' + (sv.staffing && (sv.staffing.inputs || []).length ? ' ✓' : '') + '</button><button type="button" class="btn sm ghost danger" data-act="svc-del" data-id="' + sv.id + '">Supprimer</button>' : '') + '</div></td></tr>';
       }).join('') + '</tbody></table></div><div class="hint">Un service encore utilisé (salariés, shifts, mois publiés) ne peut pas être supprimé : archivez-le.</div></section>';
@@ -2081,6 +2112,7 @@
     var cfg = staffingCfg(svc);
     var res = await Promise.all([Store.shifts(first, last, { serviceId: svc }), Store.publishedMonths(svc), Store.staffingValues(svc, C.addDays(first, -2), last)]);
     var shifts = res[0], published = res[1].some(function (p) { return p.month === first; });
+    await loadXMarks(svc, first, last);
     var sv = {}; res[2].forEach(function (v) { (sv[v.day] = sv[v.day] || {})[v.key] = v.value; });
     function reqFull(d) { return cfg ? requiredDay(cfg, d, function (x) { return sv[x]; }) : null; }
     function reqOf(d) { var r = reqFull(d); return r ? r.n : null; }
@@ -2135,6 +2167,11 @@
       var mine = shifts.filter(function (s) { return s.employee_id === p.id; }), worked = 0;
       days.forEach(function (d, i) {
         var list = mine.filter(function (s) { return s.day === d; }), x = M + nameW + i * dayW;
+        if (!list.length) xMarks(p.id, d).slice(0, 1).forEach(function (sid) {   // jour déjà pris dans un autre service
+          var mk = markOf(sid), h = rowH - 2;
+          doc.rect(x + 0.6, y + 1, dayW - 1.2, h, mk.bg);
+          doc.text(mk.code, x + dayW / 2, y + 1 + h * 0.68, { size: cfs, bold: true, align: 'center', color: mk.fg, maxWidth: dayW - 1 });
+        });
         list.slice(0, 2).forEach(function (s, k) {
           worked += C.shiftDetail(s).worked;
           var c = cellCode(s), h = list.length > 1 ? (rowH - 2) / 2 : rowH - 2, cy = y + 1 + k * h;
@@ -2483,7 +2520,7 @@
     },
     'svc-save': async function (b) {
       var key = b.dataset.id || 'new', g = function (k) { return document.getElementById('sv-' + k + '-' + key); };
-      var sv = { id: b.dataset.id ? +b.dataset.id : undefined, name: g('name').value.trim(), locations: g('loc').value.split(',').map(function (x) { return x.trim(); }).filter(Boolean), sort: +g('sort').value || 0, archived: g('arch') ? g('arch').checked : false };
+      var sv = { id: b.dataset.id ? +b.dataset.id : undefined, name: g('name').value.trim(), locations: g('loc').value.split(',').map(function (x) { return x.trim(); }).filter(Boolean), sort: +g('sort').value || 0, archived: g('arch') ? g('arch').checked : false, mark_code: g('mc').value.trim() || null, mark_bg: g('mb').value, mark_fg: g('mf').value };
       if (!sv.name) { toast('Indiquez le nom du service.', true); return; }
       try { await attempt(function () { return Store.saveService(sv); }, sv.id ? 'Service mis à jour' : 'Service ajouté'); S.services = await Store.services(); render(); } catch (e) {}
     },
@@ -2713,7 +2750,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '52';
+  var APP_VERSION = '53';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {

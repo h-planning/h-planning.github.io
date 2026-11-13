@@ -81,6 +81,7 @@
       var row = { name: String(s.name || '').trim(), locations: s.locations || [], archived: !!s.archived };
       if (s.staffing !== undefined) row.staffing = s.staffing;
       if (s.sort != null) row.sort = s.sort;
+      if (s.mark_code !== undefined) { row.mark_code = s.mark_code || null; row.mark_bg = s.mark_bg || null; row.mark_fg = s.mark_fg || null; }
       if (s.id) return must(await sb.from('services').update(row).eq('id', s.id).select().single());
       return must(await sb.from('services').insert(row).select().single());
     },
@@ -99,6 +100,7 @@
       if (f && f.employeeId) q = q.eq('employee_id', f.employeeId);
       return must(await q);
     },
+    otherServiceDays: async function (svc, from, to) { var r = await sb.rpc('other_service_days', { p_svc: svc, p_from: from, p_to: to }); return r.error ? [] : r.data || []; },
     saveShift: async function (sh) {
       var row = Object.assign({}, sh); delete row.updated_at; delete row.updated_by;
       if (row.id) return must(await sb.from('shifts').update(row).eq('id', row.id).select().single());
