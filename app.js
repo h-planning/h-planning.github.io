@@ -991,7 +991,7 @@
         if (t) { o.template_id = t.id; o.start_time = t.start_time.slice(0, 5); o.end_time = t.end_time.slice(0, 5); o.label = t.name; o.color = t.color; }
         o.extra_pay = !!(f.querySelector('#ed-xp') || {}).checked;
         o.jour_rendu = !!(f.querySelector('#ed-rendu') || {}).checked;
-        o.jour_sup = !o.jour_rendu && !!(f.querySelector('#ed-sup') || {}).checked;
+        o.jour_sup = !o.jour_rendu && !o.extra_pay && !!(f.querySelector('#ed-sup') || {}).checked;
         o.owed_id = o.jour_rendu ? (v('ed-rendu-owed') || null) : null;
       } else {
         o.start_time = o.end_time = o.break_min = o.template_id = null; o.label = KLABEL[o.kind]; o.color = null; o.extra_pay = false; o.jour_rendu = false; o.jour_sup = false;
@@ -1011,7 +1011,13 @@
         (rest ? '<div class="err" style="margin-top:4px">' + esc(rest) + '</div>' : '');
     }
     f.addEventListener('input', calc);
-    f.addEventListener('change', function (e) { sync(); calc(); });
+    f.addEventListener('change', function (e) {
+      /* « Extra à payer » et « Jour supplémentaire à récupérer » : l'un ou l'autre, jamais les deux */
+      var xp = f.querySelector('#ed-xp'), su = f.querySelector('#ed-sup');
+      if (xp && su && e.target === xp && xp.checked) su.checked = false;
+      if (xp && su && e.target === su && su.checked) xp.checked = false;
+      sync(); calc();
+    });
     f.addEventListener('click', async function (e) {
       var b = e.target.closest('button'); if (!b) return;
       if (b.hasAttribute('data-close')) { dlg.close(); return; }
@@ -2707,7 +2713,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '51';
+  var APP_VERSION = '52';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {

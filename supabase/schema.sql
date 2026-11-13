@@ -698,6 +698,9 @@ begin
     new.start_time := null; new.end_time := null; new.break_min := null; new.template_id := null;
   end if;
   if not (new.kind in ('ferie','recup') or (new.kind = 'work' and new.jour_rendu)) then new.owed_id := null; end if;
+  if new.extra_pay and new.jour_sup then
+    raise exception 'Cochez « Extra à payer » ou « Jour supplémentaire à récupérer », pas les deux.';
+  end if;
 
   -- retirer l'origine d'une ligne déjà soldée (jour à rendre, jour sup) est refusé
   if tg_op = 'UPDATE' and ((old.kind = 'rendre' and new.kind <> 'rendre') or (old.jour_sup and not new.jour_sup)

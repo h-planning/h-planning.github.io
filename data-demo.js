@@ -329,6 +329,7 @@
     if (row.kind !== 'work') { row.extra_pay = false; row.jour_rendu = false; row.jour_sup = false; row.start_time = row.end_time = row.break_min = row.template_id = null; }
     if (!(row.kind === 'ferie' || row.kind === 'recup' || (row.kind === 'work' && row.jour_rendu))) row.owed_id = null;
     if (row.jour_rendu && row.jour_sup) fail('Cochez « Jour rendu » ou « Jour supplémentaire à récupérer », pas les deux.');
+    if (row.extra_pay && row.jour_sup) fail('Cochez « Extra à payer » ou « Jour supplémentaire à récupérer », pas les deux.');
     if (old && ((old.kind === 'rendre' && row.kind !== 'rendre') || (old.jour_sup && !row.jour_sup) || old.employee_id !== row.employee_id)) {
       var c = db.owed.find(function (o) { return o.source_shift_id === old.id && o.rendered_shift_id; }); if (c) fail(consumedMsg(c));
     }
