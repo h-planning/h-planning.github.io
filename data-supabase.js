@@ -100,6 +100,7 @@
       if (f && f.employeeId) q = q.eq('employee_id', f.employeeId);
       return must(await q);
     },
+    mirrorShifts: async function (svc, from, to) { var r = await sb.rpc('mirror_shifts', { p_svc: svc, p_from: from, p_to: to }); return r.error ? [] : r.data || []; },
     otherServiceDays: async function (svc, from, to) { var r = await sb.rpc('other_service_days', { p_svc: svc, p_from: from, p_to: to }); return r.error ? [] : r.data || []; },
     saveShift: async function (sh) {
       var row = Object.assign({}, sh); delete row.updated_at; delete row.updated_by;

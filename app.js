@@ -456,8 +456,25 @@
   /* ---------- MANAGER : planning du service (glisser-déposer) ---------- */
   function locIndex(svc, loc) { var sv = S.services.find(function (x) { return x.id === svc; }), l = (sv && sv.locations) || []; var i = l.indexOf(loc); return i < 0 ? (loc ? l.length : l.length + 1) : i; }
   function teamOf(svc) {
-    return S.profiles.filter(function (p) { return (p.services || []).indexOf(svc) >= 0 && ['employee', 'assistant', 'manager', 'admin'].indexOf(p.role) >= 0 && p.active; })
-      .sort(function (a, b) {
+    return sortTeam(S.profiles.filter(function (p) { return (p.services || []).indexOf(svc) >= 0 && ['employee', 'assistant', 'manager', 'admin'].indexOf(p.role) >= 0 && p.active; }), svc);
+  }
+  /* Recopie d'un autre planning (Paramètres → Services → Effectif requis, ex. Housekeeping ← « Direction » de la Réception) :
+     shifts affichés à l'identique, en lecture seule, dans la localisation choisie ; jamais comptés dans les présents du service */
+  async function loadMirror(svc, first, last, team) {
+    var sv = S.services.find(function (x) { return x.id === svc; }), m = sv && sv.staffing && sv.staffing.mirror;
+    if (!m || role() === 'employee' || !Store.mirrorShifts) return { shifts: [], team: team };
+    var list = []; try { list = await Store.mirrorShifts(svc, first, last); } catch (e) {}
+    var ids = team.map(function (p) { return p.id; }), add = [];
+    list.forEach(function (x) {
+      x._mirror = true; x.location = (sv.locations || []).find(function (l) { return l.toUpperCase() === String(x.location || '').toUpperCase(); }) || x.location;
+      if (ids.indexOf(x.employee_id) >= 0) return;
+      ids.push(x.employee_id); var loc = {}; loc[svc] = x.location;
+      add.push({ id: x.employee_id, full_name: x.full_name, svc_locations: loc, services: [], service_id: null, contract_type: '', _mirror: true, _from: x.service_id });
+    });
+    return { shifts: list, team: add.length ? sortTeam(team.concat(add), svc) : team };
+  }
+  function sortTeam(list, svc) {
+    return list.sort(function (a, b) {
         var la = locIndex(svc, locOf(a, svc)), lb = locIndex(svc, locOf(b, svc));
         if (la !== lb) return la - lb;
         var ea = a.contract_type === 'extra' || a.contract_type === 'interim', eb = b.contract_type === 'extra' || b.contract_type === 'interim';
@@ -540,7 +557,7 @@
   function readOnly() { return !can('planning', S.svc); }
   function groupRow(label, cols) { return '<tr class="grp"><td colspan="' + cols + '">' + esc(label) + '</td></tr>'; }
   function nameCell(p, cls, sub) {
-    return '<td class="' + cls + ' emp-name" title="' + esc(counters(p)) + '"><b>' + esc(p.full_name) + '</b><span>' + sub + '</span></td>';
+    return '<td class="' + cls + ' emp-name" title="' + esc(p._mirror ? 'Shifts recopiés du planning ' + svcName(p._from) + ' (lecture seule, non comptés dans les présents du service)' : counters(p)) + '"><b>' + esc(p.full_name) + '</b><span>' + sub + '</span></td>';
   }
   /* ---------- Effectif requis (Lingerie, Cafétéria…) : barème du service ---------- */
   function staffingCfg(svc) {
@@ -624,6 +641,7 @@
     var pubs = res[1].map(function (p) { return p.month; }), published = pubs.indexOf(first) >= 0, team = teamOf(svc);
     S.cache.staffVals = {}; res[3].forEach(function (v) { (S.cache.staffVals[v.day] = S.cache.staffVals[v.day] || {})[v.key] = v.value; });
     if (role() === 'employee') team = team.filter(function (p) { return shifts.some(function (s) { return s.employee_id === p.id; }) || p.id === S.me.id; });
+    var mir = await loadMirror(svc, first, last, team), disp = shifts.concat(mir.shifts); team = mir.team;
     S.cache.weekShifts = shifts; S.cache.around = around;
     S.cache.otByShift = {}; res[2].forEach(function (o) { if (o.shift_id) S.cache.otByShift[o.shift_id] = o; });
     // le mois suivant doit être publié N semaines avant son début
@@ -640,21 +658,21 @@
     }).join('') + '<th class="n mtot" title="Nombre de jours travaillés dans le mois">Jours</th>';
     var grp = null, locSplit = byLocation(svc) && team.some(function (q) { return groupOf(q, svc); });
     var body = team.map(function (p) {
-      var mine = shifts.filter(function (s) { return s.employee_id === p.id; });
+      var mine = disp.filter(function (s) { return s.employee_id === p.id; });
       var worked = mine.reduce(function (a, s) { return a + C.shiftDetail(s).worked; }, 0);
       var supp = res[2].filter(function (o) { return o.employee_id === p.id; }).reduce(function (a, o) { return a + o.minutes; }, 0);
       var cells = days.map(function (d) {
         var ds = mine.filter(function (s) { return s.day === d; }), dw = C.dow(d);
-        return '<td class="cell mcell' + (dw === 0 || dw === 6 ? ' we' : '') + '"' + (ro ? '' : ' tabindex="0" data-act="cell"') + ' data-emp="' + p.id + '" data-day="' + d + '" aria-label="' + esc(p.full_name) + ', ' + dayLong(d) + '">' +
-          ds.map(function (s) { return miniChip(s, ro ? 'tabindex="-1"' : 'data-act="edit" data-id="' + s.id + '"' + (s.request_id ? '' : ' data-drag="move"')); }).join('') + xMarkHtml(p.id, d) + '</td>';
+        return '<td class="cell mcell' + (dw === 0 || dw === 6 ? ' we' : '') + (p._mirror ? ' mirror' : '') + '"' + (ro || p._mirror ? '' : ' tabindex="0" data-act="cell"') + ' data-emp="' + p.id + '" data-day="' + d + '" aria-label="' + esc(p.full_name) + ', ' + dayLong(d) + '">' +
+          ds.map(function (s) { return miniChip(s, ro || s._mirror ? 'tabindex="-1"' + (s._mirror ? ' data-mirror="1"' : '') : 'data-act="edit" data-id="' + s.id + '"' + (s.request_id ? '' : ' data-drag="move"')); }).join('') + (p._mirror ? '' : xMarkHtml(p.id, d)) + '</td>';
       }).join('');
       var g = groupOf(p, svc), gr = '';
       if (g !== grp) { grp = g; if (g) gr = groupRow(g, days.length + 2); }
-      var row = gr + '<tr>' + nameCell(p, 'mname', esc(CONTRATS[p.contract_type])) + cells +
+      var row = gr + '<tr' + (p._mirror ? ' class="mirror-row"' : '') + '>' + nameCell(p, 'mname', p._mirror ? 'planning ' + esc(svcName(p._from)) : esc(CONTRATS[p.contract_type])) + cells +
         '<td class="n mtot" title="' + fmt(worked) + ' prévues' + (supp ? ' · +' + fmt(supp) + ' supp' : '') + '"><div>' + daysTxt(workedDays(mine, days)) + '</div></td></tr>';
       // totaux de la localisation, sous son dernier salarié
       var nx = team[team.indexOf(p) + 1];
-      if (locSplit && (!nx || groupOf(nx, svc) !== g)) row += locTotalRows(g || 'sans localisation', team.filter(function (q) { return groupOf(q, svc) === g; }).map(function (q) { return q.id; }), shifts, days);
+      if (locSplit && (!nx || groupOf(nx, svc) !== g)) row += locTotalRows(g || 'sans localisation', team.filter(function (q) { return groupOf(q, svc) === g; }).map(function (q) { return q.id; }), disp, days);
       return row;
     }).join('');
     var foot = monthCounts(shifts, team, days, cfg);
@@ -683,7 +701,7 @@
       (can('planning', svc) && feat('rest_month') ? '<button class="btn sm" data-act="rest-month" title="Pose « Repos » sur les jours de repos habituels de chaque salarié (fiche Équipe), seulement sur les cases vides, à partir d\'aujourd\'hui">Poser les repos habituels</button>' : '') +
       (can('copy_week', svc) ? '<button class="btn sm" data-act="copy-month" title="Recopie, jour de semaine par jour de semaine, les shifts d\'il y a 4 ou 5 semaines sur les jours encore vides">Recopier les semaines précédentes</button>' : '') +
       (can('publish', svc) ? (published ? '<button class="btn sm ghost" data-act="unpublish">Dépublier le mois</button>' : '<button class="btn sm brass" data-act="publish">Publier le mois</button>') : '') + '</div></div>' + palette()) +
-      (cfg && !cfg.inputs.length && cfg.min_staff == null ? '<p class="hint" style="margin:0">« ' + esc((cfg.extra || {}).label || 'Demande extra StaffHôtel') + ' » : chaque extra saisi compte comme une personne présente (simulation).</p>' : cfg && !cfg.inputs.length ? '<p class="hint" style="margin:0">Minimum ' + esc(cfg.min_staff) + ' présents chaque jour : la case « Présents » passe en jaune (chiffre rouge) s\'il en manque, en orange s\'il y en a plus.</p>' : cfg ? '<p class="hint" style="margin:0">Saisissez chaque jour ' + (cfg.combine === 'formula' ? 'les lignes ' + cfg.inputs.map(function (i) { return esc(i.label); }).join(', ') + ' (« ' + esc(totalLabel(cfg)) + ' » = ' + formulaText(cfg) + ')' : cfg.combine === 'sum' && cfg.inputs.length > 1 ? 'les lignes ' + cfg.inputs.map(function (i) { return esc(i.label); }).join(', ') + ' (le Total les additionne)' : cfg.inputs.map(function (i) { return '« ' + esc(i.label) + ' »'; }).join(' et ')) + ' : ou collez une ligne copiée depuis Excel dans la case du 1er jour (elle remplit tout le mois ; plusieurs lignes copiées remplissent aussi les lignes du dessous). HPG calcule l\'effectif requis (barème du service) : la case « Présents » passe en jaune (chiffre rouge) s\'il manque du personnel, en orange s\'il y a du personnel en trop.</p>' : '') +
+      (cfg && !cfg.inputs.length && cfg.min_staff == null ? (!cfg.extra ? '' : '<p class="hint" style="margin:0">« ' + esc((cfg.extra || {}).label || 'Demande extra StaffHôtel') + ' » : chaque extra saisi compte comme une personne présente (simulation).</p>') : cfg && !cfg.inputs.length ? '<p class="hint" style="margin:0">Minimum ' + esc(cfg.min_staff) + ' présents chaque jour : la case « Présents » passe en jaune (chiffre rouge) s\'il en manque, en orange s\'il y en a plus.</p>' : cfg ? '<p class="hint" style="margin:0">Saisissez chaque jour ' + (cfg.combine === 'formula' ? 'les lignes ' + cfg.inputs.map(function (i) { return esc(i.label); }).join(', ') + ' (« ' + esc(totalLabel(cfg)) + ' » = ' + formulaText(cfg) + ')' : cfg.combine === 'sum' && cfg.inputs.length > 1 ? 'les lignes ' + cfg.inputs.map(function (i) { return esc(i.label); }).join(', ') + ' (le Total les additionne)' : cfg.inputs.map(function (i) { return '« ' + esc(i.label) + ' »'; }).join(' et ')) + ' : ou collez une ligne copiée depuis Excel dans la case du 1er jour (elle remplit tout le mois ; plusieurs lignes copiées remplissent aussi les lignes du dessous). HPG calcule l\'effectif requis (barème du service) : la case « Présents » passe en jaune (chiffre rouge) s\'il manque du personnel, en orange s\'il y a du personnel en trop.</p>' : '') +
       (team.length ? '<div class="table-wrap mwrap"><table class="grid mgrid"><thead>' + livr + '<tr>' + head + '</tr>' + staffRows + '</thead><tbody>' + body + '</tbody>' + foot + '</table></div>'
         : '<div class="panel empty">Aucun salarié actif dans ce service. Ajoutez-en dans l\'onglet Équipe.</div>') + monthLegend();
   }
@@ -1979,6 +1997,11 @@
       '<fieldset class="sf-formula"><label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="sf-extra"' + (c.extra ? ' checked' : '') + '> Ligne « Demande extra StaffHôtel » : chaque extra saisi compte comme une personne présente (simulation du manque de personnel)</label>' +
         '<div class="two"><label class="f">Chambres faites par un extra (Housekeeping, sinon 0)<input type="number" id="sf-xrooms" min="0" max="40" value="' + ((c.extra || {}).rooms || 0) + '"></label><label class="f">Compté dans la localisation (facultatif)<input type="text" id="sf-xloc" value="' + esc((c.extra || {}).location || '') + '" placeholder="ex. FEMMES DE CHAMBRE"></label></div></fieldset>' +
       '<label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="sf-byloc"' + (c.by_location ? ' checked' : '') + '> Totaux séparés par localisation : sous chaque localisation, le nombre de présents de cette localisation (écran et PDF)</label>' +
+      (function () { var mr = c.mirror || {}, others = S.services.filter(function (x) { return x.id !== sv.id && !x.archived; });
+        return '<fieldset class="sf-formula"><label class="f" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="sf-mir"' + (c.mirror ? ' checked' : '') + '> Recopier dans ce planning des shifts d\'un autre planning (à l\'identique, en lecture seule, non comptés dans les présents)</label>' +
+          '<div class="two"><label class="f">Depuis le planning<select id="sf-mfrom">' + others.map(function (x) { return '<option value="' + x.id + '"' + (+mr.from === x.id || (!mr.from && /r.ception/i.test(x.name)) ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></label>' +
+          '<label class="f">Shifts dont le nom contient<input type="text" id="sf-mmatch" value="' + esc(mr.match || 'direction') + '"></label></div>' +
+          '<label class="f">Dans la localisation<input type="text" id="sf-mloc" value="' + esc(mr.location || 'DIRECTION') + '"></label></fieldset>'; })() +
       '<div class="err" id="sf-err"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary" type="submit">Enregistrer</button></div></div></form>';
     var f = dlg.querySelector('#sf');
     f.querySelector('#sf-combine').addEventListener('change', function () { f.querySelector('#sf-formula').hidden = this.value !== 'formula'; });
@@ -1995,14 +2018,17 @@
       var staffing = { inputs: inputs, combine: f.querySelector('#sf-combine').value, tiers: tiers.sort(function (a, b) { return b.over - a.over; }),
         base: bv === '' ? (tiers.length ? 0 : null) : +bv, delivery: f.querySelector('#sf-deliv').checked, by_location: f.querySelector('#sf-byloc').checked, rooms_left: f.querySelector('#sf-rooms').checked,
         min_staff: f.querySelector('#sf-min').value === '' ? null : Math.max(0, +f.querySelector('#sf-min').value),
+        mirror: f.querySelector('#sf-mir').checked && f.querySelector('#sf-mmatch').value.trim() ? { from: +f.querySelector('#sf-mfrom').value, match: f.querySelector('#sf-mmatch').value.trim(), location: f.querySelector('#sf-mloc').value.trim().toUpperCase() || 'DIRECTION' } : null,
         extra: f.querySelector('#sf-extra').checked ? { label: 'Demande extra StaffHôtel', rooms: Math.max(0, +f.querySelector('#sf-xrooms').value || 0), location: f.querySelector('#sf-xloc').value.trim() || null } : null };
       if (staffing.combine === 'formula') {
         var t2 = { label: f.querySelector('#sf-totlabel').value.trim() || 'Total', keys: [], prev: [] };
         inputs.forEach(function (inp, k) { var sel = f.querySelector('[data-role-idx="' + k + '"]'), r = sel ? sel.value : 'day'; if (r === 'day') t2.keys.push(inp.key); if (r === 'prev') t2.prev.push(inp.key); });
         staffing.total = t2;
       }
-      if (!inputs.length && !staffing.by_location && staffing.min_staff == null && !staffing.extra) staffing = null;
-      try { await Store.saveService({ id: sv.id, name: sv.name, locations: sv.locations, sort: sv.sort, archived: sv.archived, staffing: staffing }); S.services = await Store.services(); toast('Réglages enregistrés'); dlg.close(); render(); }
+      if (!inputs.length && !staffing.by_location && staffing.min_staff == null && !staffing.extra && !staffing.mirror) staffing = null;
+      var locs = sv.locations || [];
+      if (staffing && staffing.mirror && !locs.some(function (l) { return l.toUpperCase() === staffing.mirror.location; })) locs = [staffing.mirror.location].concat(locs);   // la localisation est ajoutée au service
+      try { await Store.saveService({ id: sv.id, name: sv.name, locations: locs, sort: sv.sort, archived: sv.archived, staffing: staffing }); S.services = await Store.services(); toast('Réglages enregistrés'); dlg.close(); render(); }
       catch (ex) { err.textContent = ex.message; }
     });
     dlg.showModal();
@@ -2147,6 +2173,7 @@
     function reqOf(d) { var r = reqFull(d); return r ? r.n : null; }
     var team = teamOf(svc), ids = team.map(function (p) { return p.id; });
     shifts.forEach(function (s) { if (ids.indexOf(s.employee_id) < 0) { var p = S.profiles.find(function (x) { return x.id === s.employee_id; }); if (p) { team.push(p); ids.push(p.id); } } });
+    var mir = await loadMirror(svc, first, last, team), disp = shifts.concat(mir.shifts); team = mir.team; ids = team.map(function (p) { return p.id; });
     var lastMod = shifts.filter(function (s) { return s.updated_at; }).reduce(function (a, s) { return !a || s.updated_at > a.updated_at ? s : a; }, null);
     var printed = new Date(), monthLabel = MOIS_L[+month.slice(5, 7) - 1] + ' ' + month.slice(0, 4), svcLabel = svcName(svc);
     var printedTxt = 'Imprimé le ' + stamp(printed) + ' par ' + (isDev() ? 'Développeur' : (S.me.full_name || S.me.email));
@@ -2193,10 +2220,10 @@
       if (g !== grp) { grp = g; if (g) { var gh = rowH * 0.6; doc.rect(M, y, PW - 2 * M, gh, '#F3F3EE'); doc.text(g, M + 4, y + gh * 0.78, { size: Math.max(4, fs - 1.5), bold: true, color: '#7A8291' }); y += gh; } }
       if (idx % 2) doc.rect(M, y, PW - 2 * M, rowH, '#FAFAF7');
       doc.text(p.full_name, M + 4, y + rowH * 0.66, { size: fs, bold: true, color: '#1B2433', maxWidth: nameW - 8 });
-      var mine = shifts.filter(function (s) { return s.employee_id === p.id; }), worked = 0;
+      var mine = disp.filter(function (s) { return s.employee_id === p.id; }), worked = 0;
       days.forEach(function (d, i) {
         var list = mine.filter(function (s) { return s.day === d; }), x = M + nameW + i * dayW;
-        if (!list.length) xMarks(p.id, d).slice(0, 1).forEach(function (sid) {   // jour déjà pris dans un autre service
+        if (!list.length && !p._mirror) xMarks(p.id, d).slice(0, 1).forEach(function (sid) {   // jour déjà pris dans un autre service
           var mk = markOf(sid), h = rowH - 2;
           doc.rect(x + 0.6, y + 1, dayW - 1.2, h, mk.bg);
           doc.text(mk.code, x + dayW / 2, y + 1 + h * 0.68, { size: cfs, bold: true, align: 'center', color: mk.fg, maxWidth: dayW - 1 });
@@ -2215,7 +2242,7 @@
       // totaux de la localisation, sous son dernier salarié
       var nx = team[idx + 1];
       if (locSplit && (!nx || groupOf(nx, svc) !== g)) {
-        var ls = locStats(shifts, locMembers[g] || [], days), lh = rowH * 0.85, lfs = Math.max(4, fs - 0.8);
+        var ls = locStats(disp, locMembers[g] || [], days), lh = rowH * 0.85, lfs = Math.max(4, fs - 0.8);
         [{ pres: true }].forEach(function (lg) {
           doc.rect(M, y, PW - 2 * M, lh, lg.pres ? '#E4E5DD' : '#F1F1EB');
           var col = lg.pres ? null : (PDFC[lg.color] || PDFC.am);
@@ -3138,7 +3165,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '55';
+  var APP_VERSION = '56';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {

@@ -474,6 +474,21 @@
       var r = st.rights || (st.rights = {});
       r.manager = Object.assign({ extras: true, extras_sign: true }, r.manager); r.assistant = Object.assign({ extras: true, extras_sign: false }, r.assistant);
     });
+    if (!d.mirrorSeeded && d.templates && d.services) {
+      d.mirrorSeeded = true; var dirId = (d.templates.find(function (t) { return t.service_id === 1 && /direction/i.test(t.name); }) || {}).id;
+      if (!d.templates.some(function (t) { return t.service_id === 1 && /direction/i.test(t.name); })) d.templates.push({ id: (dirId = Math.max.apply(null, d.templates.map(function (t) { return t.id; }).concat(0)) + 1), company_id: 1, service_id: 1, name: 'Direction', start_time: '09:00', end_time: '17:18', color: 'mid', sort: 9, active: true, label: 'DIR', bg: '#1B2433', fg: '#FFFFFF' });
+      var hk = d.services.find(function (x) { return x.id === 5; });
+      if (hk) { hk.staffing = Object.assign({}, hk.staffing || { inputs: [], combine: 'max', tiers: [], base: null }, { mirror: { from: 1, match: 'direction', location: 'DIRECTION' } }); if (hk.locations.indexOf('DIRECTION') < 0) hk.locations.unshift('DIRECTION'); }
+      var t0 = today(), ws0 = C.weekStart(t0);
+      [-7, -6, 0, 1, 7, 8].forEach(function (k) {
+        var day = C.addDays(ws0, k + 2);
+        var w = d.shifts.find(function (s) { return s.employee_id === 'm1' && s.day === day && s.kind === 'work'; });
+        if (w) { Object.assign(w, { template_id: dirId, start_time: '09:00', end_time: '17:18', label: 'Direction', color: 'mid' }); return; }
+        if (d.shifts.some(function (s) { return s.employee_id === 'm1' && s.day === day && s.kind !== 'repos'; })) return;
+        d.shifts = d.shifts.filter(function (s) { return !(s.employee_id === 'm1' && s.day === day); });
+        d.shifts.push({ id: uid(), employee_id: 'm1', service_id: 1, day: day, kind: 'work', template_id: dirId, start_time: '09:00', end_time: '17:18', label: 'Direction', color: 'mid', updated_at: nowIso() });
+      });
+    }
     if (!d.extrasSeeded) {
       d.extrasSeeded = true;
       var x1 = (d.profiles || []).find(function (p) { return p.id === 'x1'; });
@@ -725,6 +740,17 @@
         return staffOf(s.service_id) || (s.employee_id === me.id && (s.request_id || isPublished(s.service_id, s.day))) ||
           (role() === 'employee' && empRight('team_planning') && inMine(s.service_id) && isPublished(s.service_id, s.day) && canSee(profile(s.employee_id)));
       }).sort(function (a, b) { return (a.day + (a.start_time || '')).localeCompare(b.day + (b.start_time || '')); }));
+    },
+    /* shifts d'un autre planning recopiés à l'identique (lecture seule), ex. « Direction » de la Réception dans Housekeeping */
+    mirrorShifts: function (svc, from, to) {
+      var sv = db.services.find(function (x) { return x.id === svc; }), m = sv && sv.staffing && sv.staffing.mirror;
+      if (!m || !m.from || !m.match || !staffOf(svc) || +m.from === svc || svcCo(+m.from) !== svcCo(svc)) return ok([]);
+      var pat = String(m.match).toLowerCase(), loc = m.location || 'DIRECTION';
+      return ok(db.shifts.filter(function (s) {
+        if (s.service_id !== +m.from || s.kind !== 'work' || s.day < from || s.day > to) return false;
+        var t = db.templates.find(function (x) { return x.id === s.template_id; });
+        return (t && t.name.toLowerCase().indexOf(pat) >= 0) || String(s.label || '').toLowerCase().indexOf(pat) >= 0;
+      }).map(function (s) { var p = profile(s.employee_id); return Object.assign({}, s, { full_name: p ? p.full_name : '', location: loc }); }));
     },
     otherServiceDays: function (svc, from, to) {
       if (!staffOf(svc)) return ok([]);
