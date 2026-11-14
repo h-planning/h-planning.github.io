@@ -45,4 +45,4 @@ jobs:
       - uses: supabase/setup-cli@v1
         with: { version: latest }
       - name: Fonction manage-user
-        run: supabase functions deploy manage-user --project-ref "$PROJECT_REF" --no-verify-jwt --use-api
+        run: supabase functions deploy manage-user --project-ref "$PROJECT_REF" --no-verify-jwt --use-api --yes
