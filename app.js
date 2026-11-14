@@ -139,7 +139,7 @@
   /* Options de l'entreprise (fiche Entreprise, réglées par le développeur). Une option absente de la fiche est activée :
      chaque nouvelle option ajoutée ici apparaît d'elle-même dans la liste, cochée, pour toutes les entreprises. */
   var FEATURES = [
-    ['Onglets', [['demandes', 'Demandes (congés, repos…)'], ['soldes', 'Mes soldes'], ['equipe_planning', 'Planning équipe (vue salarié)'], ['jours', 'Jours à rendre / récup.'], ['feries', 'Jours fériés'], ['heures', 'Heures supp'], ['presence', 'Fiches de présence'], ['pointage', 'Pointage'], ['journal', 'Journal des modifications']]],
+    ['Onglets', [['demandes', 'Demandes (congés, repos…)'], ['soldes', 'Mes soldes'], ['equipe_planning', 'Planning équipe (vue salarié)'], ['jours', 'Jours à rendre / récup.'], ['feries', 'Jours fériés'], ['heures', 'Heures supp'], ['presence', 'Fiches de présence'], ['pointage', 'Pointage'], ['extras', 'Extras (registre et contrats d\'extra)'], ['journal', 'Journal des modifications']]],
     ['Planning', [['staffing', 'Lignes de calcul d\'effectif et couleurs de la ligne « Présents »'], ['extra', 'Ligne « Demande extra StaffHôtel »'], ['delivery', 'Ligne « Jour de livraison »'], ['rooms', 'Chambres (Housekeeping) : chambres par shift et « Chambres restant à faire »'], ['by_location', 'Totaux par localisation'], ['rest_month', 'Bouton « Poser les repos habituels »'], ['print', 'Impression du planning (PDF)']]],
     ['Salariés', [['pw_reset', 'Changement de mot de passe par la hiérarchie (Équipe)'], ['rest_auto', 'Repos habituels posés automatiquement à la création / modification'], ['push', 'Notifications sur téléphone']]]
   ];
@@ -164,6 +164,7 @@
     gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2L5.5 5.5"/></svg>',
     bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>',
     user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8.5" r="3.7"/><path d="M4.5 20c.9-3.6 3.8-5.6 7.5-5.6s6.6 2 7.5 5.6"/></svg>',
+    doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14.5 3.5V8H19M9 12h7M9 15.5h7M9 19h4"/></svg>',
     sheet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M4 9h16M4 14.5h16M10 3.5v17"/></svg>',
     logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 4.5h3.5A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M10 8l-4 4 4 4M6 12h9"/></svg>',
     pdf: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></svg>',
@@ -255,6 +256,7 @@
       if (hasRight('owed')) { if (feat('jours')) t.push(['jours', 'Jours à rendre / récup.', ICON.cal]); if (feat('feries')) t.push(['feries', 'Jours fériés', ICON.cal]); }
       if (hasRight('overtime') && feat('heures')) t.push(['heures', 'Heures supp', ICON.clock]);
       if (hasRight('presence')) { if (feat('presence')) t.push(['presence', 'Fiches de présence', ICON.sheet]); if (feat('pointage')) t.push(['pointage', 'Pointage', ICON.sheet]); }
+      if (hasRight('extras') && feat('extras')) t.push(['extras', 'Extras', ICON.doc]);
       if (isAdmin()) {
         if (adminRight('settings')) t.push(['parametres', 'Paramètres', ICON.gear]);
         if (adminRight('journal') && feat('journal')) t.push(['journal', 'Journal', ICON.sheet]);
@@ -293,7 +295,7 @@
         if (t[0] === 'presence') return '<button data-act="go" data-v="presence"' + (S.view === 'presence' ? ' aria-current="page"' : '') + '>' + t[2] + '<span>Présences</span></button>';
         return '<button data-act="go" data-v="' + t[0] + '"' + (S.view === t[0] ? ' aria-current="page"' : '') + '>' + t[2] + '<span>' + t[1] + '</span>' + c + '</button>';
       }).join('') + '</div></nav>' : '') +
-      '<main id="main"' + ((S.view === 'planning' && isBoss()) || S.view === 'equipe-planning' || S.view === 'parametres' ? ' class="wide"' : '') + '>' + inner + '</main>';
+      '<main id="main"' + ((S.view === 'planning' && isBoss()) || S.view === 'equipe-planning' || S.view === 'parametres' || S.view === 'extras' ? ' class="wide"' : '') + '>' + inner + '</main>';
   }
   function notifPanel() {
     if (!S.notifs.length) return '<div class="notif-panel"><div class="empty">Aucune notification.</div></div>';
@@ -324,7 +326,7 @@
     if (S.me.role === 'pending') { app.innerHTML = shell(pendingView()); return; }
     var allowed = tabsFor().map(function (t) { return t[0]; });
     var views = isBoss()
-      ? { planning: vTeamPlanning, moi: vMyPlanning, demandes: vValidate, 'mes-demandes': vMyRequests, equipe: vTeam, jours: vOwedAll, feries: vFeries, heures: vOvertime, presence: vPresence, pointage: vPointage, parametres: vSettings, journal: vJournal, entreprises: vCompanies }
+      ? { planning: vTeamPlanning, moi: vMyPlanning, demandes: vValidate, 'mes-demandes': vMyRequests, equipe: vTeam, jours: vOwedAll, feries: vFeries, heures: vOvertime, presence: vPresence, pointage: vPointage, parametres: vSettings, journal: vJournal, entreprises: vCompanies, extras: vExtras }
       : { planning: vMyPlanning, 'equipe-planning': vTeamPlanning, 'mes-demandes': vMyRequests };
     if (allowed.indexOf(S.view) < 0 || !views[S.view]) S.view = 'planning';
     try {
@@ -950,6 +952,23 @@
     var rendreOpen = owedAll.filter(function (o) { return o.type === 'rendre' && (!o.rendered_shift_id || o.rendered_shift_id === sh.id); });
     function d(x) { return x ? x.split('-').reverse().join('/') : 'sans date'; }
     var showRendu = rendreOpen.length > 0 || sh.jour_rendu, showSup = !rendreOpen.filter(function (o) { return !o.rendered_shift_id; }).length || sh.jour_sup;
+    /* Contrat d'extra : imprimable depuis le shift quand la fiche de l'extra est complète */
+    var xBox = '', xf = null, xc = null;
+    if (!isNew && !fromRequest && kind === 'work' && feat('extras') && can('extras', S.svc)) {
+      try {
+        await loadExtras(); xf = extraOfProfile(sh.employee_id);
+        if (xf || (emp && emp.contract_type === 'extra')) {
+          xc = (await Store.extraContracts({ shiftId: sh.id })).find(function (k) { return k.status !== 'cancelled'; }) || null;
+          var xm = xMissing(xf);
+          xBox = '<div class="otbox xcbox"><div class="eyebrow">Contrat d\'extra</div>' + (xc
+            ? '<div class="row"><span class="pill ' + XST[xc.status][1] + '">' + XST[xc.status][0] + '</span><span class="small muted">' + (xc.status === 'signed' ? 'signé le ' + stamp(new Date(xc.signed_at)) : xc.printed_at ? 'imprimé le ' + stamp(new Date(xc.printed_at)) : 'pas encore imprimé') + '</span></div>' +
+              '<div class="row"><button type="button" class="btn sm" data-xc="print">Imprimer le contrat</button>' + (xc.status === 'to_sign' && canSign(S.svc) ? '<button type="button" class="btn sm primary" data-xc="sign">Marquer signé</button>' : '') + '</div>'
+            : xm.length ? '<div class="small">' + (xf ? 'Fiche à compléter : ' + xm.join(', ') : 'Pas encore de fiche d\'extra pour ' + esc(emp.full_name)) + ' (adresse, niveau, échelon nécessaires au contrat).</div><div class="row"><button type="button" class="btn sm" data-xc="fiche">' + (xf ? 'Compléter la fiche' : 'Créer la fiche extra') + '</button></div>'
+            : '<div class="small">Fiche complète : ' + esc(xName(xf)) + ' · niveau ' + esc(xf.level) + ' échelon ' + esc(xf.echelon) + ' ' + (xf.qualified ? 'qualifié' : 'basique') + '.</div><div class="row"><button type="button" class="btn sm brass" data-xc="create">Créer et imprimer le contrat</button></div>') +
+            '<div class="small muted">Le contrat reprend l\'horaire enregistré du shift : enregistrez d\'abord vos modifications.</div></div>';
+        }
+      } catch (e) {}
+    }
     dlg.innerHTML = '<form method="dialog" id="ed" novalidate><div class="dlg-h"><div><div class="eyebrow">' + esc(emp ? emp.full_name : '') + '</div><h3>' + dayLong(sh.day) + '</h3></div>' +
       '<button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b">' +
       (fromRequest ? '<div class="banner info">Journée posée par une demande validée (' + esc(shiftLabel(sh)) + '). Vous pouvez la retirer si besoin.</div>' :
@@ -966,7 +985,7 @@
       (showRendu ? '<label class="xpbox"><input type="checkbox" id="ed-rendu"' + (sh.jour_rendu ? ' checked' : '') + '> <span><b>Jour rendu</b> — ce shift rend un jour que ' + esc(emp ? emp.full_name : 'le salarié') + ' doit à l\'entreprise<br>' +
         '<select id="ed-rendu-owed"' + (sh.jour_rendu ? '' : ' disabled') + '><option value="">— Choisir le jour rendu (obligatoire) —</option>' + rendreOpen.map(function (o) { return '<option value="' + o.id + '"' + (o.id === sh.owed_id ? ' selected' : '') + '>Jour à rendre du ' + d(o.origin_date) + (o.reason ? ' · ' + esc(o.reason) : '') + '</option>'; }).join('') + '</select></span></label>' : '') +
       (showSup ? '<label class="xpbox"><input type="checkbox" id="ed-sup"' + (sh.jour_sup ? ' checked' : '') + '> <span><b>Jour supplémentaire à récupérer</b> — ajoute 1 jour à sa liste « jours à récupérer »' +
-        (rendreOpen.length && !sh.jour_sup ? '' : '') + '</span></label>' : '') +
+        (rendreOpen.length && !sh.jour_sup ? '' : '') + '</span></label>' : '') + xBox +
       '</div>' +
       '<div id="owed-box" class="form"' + (kind === 'ferie' || kind === 'recup' ? '' : ' hidden') + '><label class="f">Jour pris dans la liste du salarié<select id="ed-owed"></select></label></div>' +
       '<div class="hint" id="kind-hint"></div>' +
@@ -1040,6 +1059,13 @@
     f.addEventListener('click', async function (e) {
       var b = e.target.closest('button'); if (!b) return;
       if (b.hasAttribute('data-close')) { dlg.close(); return; }
+      if (b.dataset.xc) {
+        var act = b.dataset.xc; dlg.close();
+        if (act === 'fiche') { openExtra(xf, xf ? null : sh.employee_id, function () { render(); }); return; }
+        if (act === 'sign') { setContract(xc.id, 'signed', 'Contrat marqué signé'); return; }
+        if (act === 'print') { await printContract(xc); return; }
+        await contractFromShift(sh.id, sh); render(); return;
+      }
       if (b.hasAttribute('data-del')) {
         if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmer la suppression'; return; }
         try { await attempt(function () { return Store.deleteShift(sh.id); }, 'Supprimé'); dlg.close(); S.profiles = await Store.profiles(); render(); } catch (err) {}
@@ -1784,14 +1810,15 @@
   function tf(k, label, v) { return '<label class="f">' + label + '<input type="text" data-k="' + k + '" value="' + esc(v || '') + '"></label>'; }
   function sw(attr, label, on, hint) { return '<label class="sw-row"><input type="checkbox" ' + attr + (on ? ' checked' : '') + '><span class="sw"></span><span>' + label + (hint ? '<br><span class="hint">' + hint + '</span>' : '') + '</span></label>'; }
   var RIGHT_LABELS = { planning: 'Créer et modifier le planning', publish: 'Publier / dépublier la semaine', copy_week: 'Copier la semaine précédente', requests: 'Saisir et valider les demandes des salariés',
-    owed: 'Jours fériés, à récupérer et à rendre', presence: 'Fiches de présence et pointage', overtime: 'Heures supplémentaires', team: 'Créer et modifier les fiches de l\'équipe' };
+    owed: 'Jours fériés, à récupérer et à rendre', presence: 'Fiches de présence et pointage', overtime: 'Heures supplémentaires', team: 'Créer et modifier les fiches de l\'équipe',
+    extras: 'Extras : registre et contrats d\'extra', extras_sign: 'Extras : marquer un contrat « signé »' };
   var ADMIN_RIGHTS = Object.assign({}, { settings: 'Accéder aux Paramètres et les modifier', journal: 'Consulter le journal des modifications', company: 'Modifier la fiche de l\'entreprise', passwords: 'Changer les mots de passe de l\'équipe' }, null);
   var EMP_RIGHTS = { team_planning: 'Voir le planning de toute l\'équipe (mois publiés)', balances: 'Consulter ses soldes et ses demandes (CP, fériés, ancienneté, heures supp)' };
   var ST_DEFAULTS = {
     work: { default_contract_hours: 39, break_threshold_min: 360, break_min: 30, min_rest_hours: 11 }, req: { publish_weeks_ahead: 2 },
     cp: { cp_monthly_days: 2.5, cp_credit_day: 1, cp_credit_month: 5, cp_cap: 30, cp_contracts: ['cdi', 'cdd', 'alternant'] }, ot: { contingent_hours: 360, ot_day_minutes: 450 },
     sen: { seniority_years: 5, seniority_days: 1, seniority_contracts: ['cdi', 'cdd', 'alternant'] }, pres: { prev_month_start_day: 25 },
-    rights: { rights: { manager: { planning: true, publish: true, copy_week: true, requests: true, owed: true, presence: true, overtime: true, team: true }, assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false }, employee: { team_planning: false, balances: true } } },
+    rights: { rights: { manager: { planning: true, publish: true, copy_week: true, requests: true, owed: true, presence: true, overtime: true, team: true, extras: true, extras_sign: true }, assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false, extras: true, extras_sign: false }, employee: { team_planning: false, balances: true } } },
     days: { day_types: {} }, notif: { notify: { publish: true, change: true, request: true, decision: true, credit: true } }, hotel: {}, rest: { rest_auto_months: 3 }
   };
   async function vSettings() {
@@ -1907,13 +1934,15 @@
       ['anc', 'Ancienneté', ICON.users, sections[5]],
       ['droits', 'Droits des rôles', ICON.users, (isDev() ? card(ICON.user, 'Droits du rôle Administrateur', 'Réglables par le développeur uniquement. Par défaut, l\'administrateur a tous les droits sur tous les services de son établissement.', rightsBoxAdmin(), 'rights') : '') + sections[6] + sections[7] + sections[8]],
       ['notifs', 'Notifications', ICON.bell, sections[10]],
+      feat('extras') ? ['extras', 'Extras (grille des salaires)', ICON.sheet, extraGridCard()] : null,
       ['securite', 'Sécurité', ICON.user, sections[13]]
     ];
+    CATS = CATS.filter(Boolean);
     var cat = CATS.some(function (c) { return c[0] === S.setCat; }) ? S.setCat : 'etab';
     var curCat = CATS.find(function (c) { return c[0] === cat; });
     return '<div class="page-head"><div><div class="eyebrow">Réservé à l\'administrateur</div><h2>Paramètres</h2><div class="small muted">Règles de l\'établissement, compteurs et droits des rôles' + (st.updated_at ? ' · modifiés le ' + stamp(new Date(st.updated_at)) : '') + '</div></div></div>' +
             '<div class="set-layout"><label class="set-pick"><span class="eyebrow">Catégorie de réglages</span><select data-change="set-cat" aria-label="Catégorie de réglages">' + CATS.map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === cat ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; }).join('') + '</select></label>' +
-      '<div class="set-body"><h3 class="set-title">' + esc(curCat[1]) + '</h3><div class="scards' + (['services', 'shifts', 'conges'].indexOf(cat) >= 0 ? ' one' : '') + '">' + curCat[3] + '</div></div></div>';
+      '<div class="set-body"><h3 class="set-title">' + esc(curCat[1]) + '</h3><div class="scards' + (['services', 'shifts', 'conges', 'extras'].indexOf(cat) >= 0 ? ' one' : '') + '">' + curCat[3] + '</div></div></div>';
   }
   function tplRow(t) {
     var colors = Object.keys(COLORS).map(function (k) { return '<option value="' + k + '"' + (t.color === k ? ' selected' : '') + '>' + COLORS[k] + '</option>'; }).join('');
@@ -2410,6 +2439,361 @@
   }
 
   /* ---------- Événements ---------- */
+  /* ---------- EXTRAS : registre des extras et contrats d'extra ----------
+     Contrats indépendants du planning (ou créés depuis un shift), jamais supprimés : à signer → signé (manager) ; annulé = gardé.
+     L'administrateur voit tous les services ; manager et assistant, les leurs (droits « extras » et « extras_sign »). */
+  var XST = { to_sign: ['À signer', 'warn'], signed: ['Signé', 'ok'], cancelled: ['Annulé', 'neutral'] };
+  function xName(x) { return (x.last_name || '') + ' ' + (x.first_name || ''); }
+  function xMissing(x) {
+    var m = []; if (!x) return ['fiche'];
+    if (!String(x.address || '').trim()) m.push('adresse'); if (!x.level) m.push('niveau'); if (!x.echelon) m.push('échelon');
+    return m;
+  }
+  function xGrid() { return (S.settings && S.settings.extra_grid) || []; }
+  function xRate(level, echelon, qualified) {
+    var g = xGrid().find(function (r) { return String(r.level) === String(level) && String(r.echelon) === String(echelon); });
+    var v = g ? +(qualified ? g.qualified : g.basic) : NaN; return v > 0 ? v : null;
+  }
+  function euro(v) { return v == null || isNaN(v) ? '—' : (+v).toFixed(2).replace('.', ',') + ' €'; }
+  function cWorked(c) { return C.shiftDetail({ kind: 'work', day: c.day, start_time: c.start_time, end_time: c.end_time, break_min: c.break_min || 0 }).worked; }
+  function cTotal(c) { return Math.round(cWorked(c) / 60 * c.hourly_rate * 100) / 100; }
+  function dFr(x) { return x ? x.split('-').reverse().join('/') : '—'; }
+  function canSign(svc) { return can('extras_sign', svc); }
+  function xSvcList() { return rightServices('extras'); }
+  /* nom « NOM Prénom » d'une ligne du planning → { last, first } */
+  function splitName(full) {
+    var w = String(full || '').trim().split(/\s+/), last = [];
+    while (w.length > 1 && w[0] === w[0].toUpperCase() && /[A-ZÀ-Ý]/.test(w[0])) last.push(w.shift());
+    if (!last.length) last.push(w.shift() || '');
+    return { last: last.join(' '), first: w.join(' ') };
+  }
+  async function loadExtras() { S.extras = await Store.extras(); return S.extras; }
+  function extraOfProfile(pid) { return (S.extras || []).find(function (x) { return x.profile_id === pid && !x.archived; }) || (S.extras || []).find(function (x) { return x.profile_id === pid; }); }
+
+  async function vExtras() {
+    var list = xSvcList(), all = isAdmin() && list.length > 1;
+    if (S.xSvc == null) S.xSvc = all ? 'all' : (list.indexOf(S.svc) >= 0 ? S.svc : list[0]);
+    if (S.xSvc !== 'all' && list.indexOf(S.xSvc) < 0) S.xSvc = list[0];
+    if (S.xSvc === 'all' && !all) S.xSvc = list[0];
+    var svcs = S.xSvc === 'all' ? list : [S.xSvc];
+    var res = await Promise.all([loadExtras(), Store.extraContracts(S.xSvc === 'all' ? {} : { serviceId: S.xSvc }), Store.settings(),
+      Store.shifts(C.addDays(today(), -31), C.addDays(today(), 62))]);
+    S.settings = res[2];
+    var extras = res[0].filter(function (x) { return x.services.some(function (s) { return svcs.indexOf(s) >= 0; }); });
+    var contracts = res[1].filter(function (c) { return svcs.indexOf(c.service_id) >= 0; });
+    var tab = S.xTab || 'contrats';
+    var svcSel = list.length > 1 ? '<label class="f" style="min-width:170px">Service<select data-change="x-svc">' + (all ? '<option value="all"' + (S.xSvc === 'all' ? ' selected' : '') + '>Tous les services</option>' : '') +
+      list.map(function (s) { return '<option value="' + s + '"' + (S.xSvc === s ? ' selected' : '') + '>' + esc(svcName(s)) + '</option>'; }).join('') + '</select></label>' : '';
+    var nTo = contracts.filter(function (c) { return c.status === 'to_sign'; }).length, nSi = contracts.filter(function (c) { return c.status === 'signed'; }).length;
+    var head = '<div class="page-head"><div><div class="eyebrow">' + esc(S.xSvc === 'all' ? 'Tous les services' : svcName(S.xSvc)) + '</div><h2>Extras</h2></div><div class="row">' + svcSel +
+      '<button class="btn" data-act="x-edit">Nouvel extra</button><button class="btn brass" data-act="x-contract">Nouveau contrat</button></div></div>' +
+      (xGrid().length ? '' : '<div class="banner warn">La grille des salaires d\'extra est vide : ' + (isAdmin() && adminRight('settings') ? 'remplissez-la dans <button type="button" class="linkish" data-act="x-grid">Paramètres → Extras</button>' : 'l\'administrateur doit la remplir dans les Paramètres') + ' pour pouvoir faire des contrats.</div>') +
+      '<div class="seg" role="tablist" style="margin:4px 0 14px;width:max-content;max-width:100%"><button type="button" data-act="x-tab" data-v="contrats" aria-pressed="' + (tab === 'contrats') + '">Contrats (' + contracts.length + ')</button>' +
+      '<button type="button" data-act="x-tab" data-v="registre" aria-pressed="' + (tab === 'registre') + '">Registre des extras (' + extras.filter(function (x) { return !x.archived; }).length + ')</button></div>';
+    if (tab === 'registre') return head + extrasRegister(extras, contracts);
+
+    // shifts du planning (31 jours passés → 62 jours à venir) d'extras sans contrat
+    var byShift = {}; contracts.forEach(function (c) { if (c.shift_id && c.status !== 'cancelled') byShift[c.shift_id] = c; });
+    var linked = {}; res[0].forEach(function (x) { if (x.profile_id) linked[x.profile_id] = x; });
+    var todo = res[3].filter(function (s) {
+      if (s.kind !== 'work' || svcs.indexOf(s.service_id) < 0 || byShift[s.id]) return false;
+      var p = S.profiles.find(function (q) { return q.id === s.employee_id; });
+      return linked[s.employee_id] || (p && p.contract_type === 'extra');
+    }).sort(function (a, b) { return a.day.localeCompare(b.day); });
+    var todoHtml = todo.length ? '<section class="panel"><h3 style="margin-top:0">Shifts d\'extras sans contrat <span class="muted small">(du ' + dFr(C.addDays(today(), -31)) + ' au ' + dFr(C.addDays(today(), 62)) + ')</span></h3><div class="table-wrap" style="border:0"><table><thead><tr><th>Date</th><th>Extra</th><th>Service</th><th>Horaires</th><th>Fiche</th><th></th></tr></thead><tbody>' +
+      todo.map(function (s) {
+        var x = linked[s.employee_id], miss = xMissing(x);
+        return '<tr><td>' + esc(dayShort(s.day)) + '</td><td>' + esc(x ? xName(x) : name(s.employee_id)) + '</td><td>' + esc(svcName(s.service_id)) + '</td><td>' + hhmm(s.start_time) + '–' + hhmm(s.end_time) + '</td>' +
+          '<td>' + (miss.length ? '<span class="pill warn">' + (x ? 'à compléter : ' + miss.join(', ') : 'pas de fiche') + '</span>' : '<span class="pill ok">complète</span>') + '</td>' +
+          '<td class="nowrap">' + (miss.length ? '<button type="button" class="btn sm" data-act="x-edit" data-id="' + (x ? x.id : '') + '" data-pid="' + s.employee_id + '">' + (x ? 'Compléter la fiche' : 'Créer la fiche') + '</button>'
+            : '<button type="button" class="btn sm brass" data-act="xc-from-shift" data-id="' + s.id + '">Créer et imprimer le contrat</button>') + '</td></tr>';
+      }).join('') + '</tbody></table></div></section>' : '';
+
+    var flt = S.xFilter || 'all';
+    var shown = contracts.filter(function (c) { return flt === 'all' || c.status === flt; });
+    var rows = shown.map(function (c) {
+      var st = XST[c.status], worked = cWorked(c);
+      var acts = '<button type="button" class="btn sm" data-act="xc-print" data-id="' + c.id + '"' + (c.status === 'cancelled' ? ' disabled' : '') + '>Imprimer</button>';
+      if (c.status === 'to_sign' && canSign(c.service_id)) acts += '<button type="button" class="btn sm primary" data-act="xc-sign" data-id="' + c.id + '">Marquer signé</button>';
+      if (c.status === 'signed' && canSign(c.service_id)) acts += '<button type="button" class="btn sm ghost" data-act="xc-unsign" data-id="' + c.id + '" title="En cas d\'erreur">Retirer la signature</button>';
+      if (c.status === 'to_sign') acts += '<button type="button" class="btn sm ghost" data-act="xc-editc" data-id="' + c.id + '">Modifier</button>';
+      if (c.status === 'to_sign' || (c.status === 'signed' && isAdmin())) acts += '<button type="button" class="btn sm ghost danger" data-act="xc-cancel" data-id="' + c.id + '">Annuler</button>';
+      var info = c.status === 'signed' ? 'signé le ' + stamp(new Date(c.signed_at)) + (c.signed_by ? ' par ' + name(c.signed_by) : '') :
+        c.status === 'cancelled' ? 'annulé le ' + stamp(new Date(c.cancelled_at)) + (c.cancel_reason ? ' · ' + c.cancel_reason : '') :
+        (c.printed_at ? 'imprimé le ' + stamp(new Date(c.printed_at)) : 'pas encore imprimé');
+      return '<tr' + (c.status === 'cancelled' ? ' class="muted"' : '') + '><td class="nowrap">' + esc(dayShort(c.day)) + ' ' + c.day.slice(0, 4) + '</td><td><b>' + esc(c.extra_name) + '</b>' + (c.shift_id ? ' <span class="muted small">(planning)</span>' : '') + '</td><td>' + esc(svcName(c.service_id)) + '</td>' +
+        '<td>' + esc(c.job_title || '') + '</td><td class="nowrap">' + hhmm(c.start_time) + '–' + hhmm(c.end_time) + '<div class="small muted">' + fmt(worked) + ' (pause ' + (c.break_min || 0) + ' min)</div></td>' +
+        '<td class="nowrap">' + esc((c.level || '') + ' / ' + (c.echelon || '')) + '<div class="small muted">' + (c.qualified ? 'qualifié' : 'basique') + '</div></td>' +
+        '<td class="n nowrap">' + euro(c.hourly_rate) + ' /h<div class="small muted">' + euro(cTotal(c)) + ' brut</div></td>' +
+        '<td><span class="pill ' + st[1] + '">' + st[0] + '</span><div class="small muted">' + esc(info) + '</div></td><td><div class="row" style="flex-wrap:nowrap">' + acts + '</div></td></tr>';
+    }).join('');
+    var seg = '<div class="seg">' + [['all', 'Tous'], ['to_sign', 'À signer'], ['signed', 'Signés'], ['cancelled', 'Annulés']].map(function (o) {
+      return '<button type="button" data-act="x-filter" data-v="' + o[0] + '" aria-pressed="' + (flt === o[0]) + '">' + o[1] + '</button>';
+    }).join('') + '</div>';
+    return head +
+      '<div class="stats"><div class="stat"><div class="v' + (nTo ? ' over' : '') + '">' + nTo + '</div><div class="l">contrat(s) à signer</div></div><div class="stat"><div class="v">' + nSi + '</div><div class="l">contrat(s) signé(s)</div></div>' +
+      '<div class="stat"><div class="v">' + todo.length + '</div><div class="l">shift(s) d\'extra sans contrat</div></div></div>' + todoHtml +
+      '<section class="panel"><h3 style="margin-top:0">Historique des contrats</h3>' +
+      '<p class="hint">Imprimez le contrat, faites-le signer par l\'extra et par l\'établissement, puis le manager le marque « Signé » : la direction voit ici qu\'il a bien été signé par les deux parties. Un contrat signé ne se modifie plus ; aucun contrat n\'est supprimé.</p>' +
+      '<div style="margin:0 0 10px">' + seg + '</div>' +
+      (rows ? '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Extra</th><th>Service</th><th>Poste</th><th>Horaires</th><th>Niv. / éch.</th><th class="n">Salaire</th><th>Statut</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+        : '<div class="empty">Aucun contrat' + (flt === 'all' ? '' : ' dans ce filtre') + '.</div>') + '</section>';
+  }
+  function extrasRegister(extras, contracts) {
+    var showArch = !!S.xArch, list = extras.filter(function (x) { return showArch || !x.archived; });
+    var rows = list.map(function (x) {
+      var miss = xMissing(x), rate = xRate(x.level, x.echelon, x.qualified), n = contracts.filter(function (c) { return c.extra_id === x.id; }).length;
+      var addr = [x.address, [x.postal_code, x.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+      return '<tr' + (x.archived ? ' class="muted"' : '') + '><td><b>' + esc(xName(x)) + '</b>' + (x.archived ? ' <span class="pill neutral">archivé</span>' : '') + (x.phone ? '<div class="small muted">' + esc(x.phone) + '</div>' : '') + '</td>' +
+        '<td>' + (addr ? esc(addr) : '<span class="pill warn">à compléter</span>') + '</td><td>' + esc(x.job_title || '') + '</td>' +
+        '<td class="nowrap">' + (x.level && x.echelon ? esc(x.level + ' / ' + x.echelon) : '<span class="pill warn">à compléter</span>') + '</td><td>' + (x.qualified ? 'Qualifié' : 'Basique') + '</td>' +
+        '<td class="n nowrap">' + (rate ? euro(rate) + ' /h' : (x.level && x.echelon ? '<span class="pill bad">absent de la grille</span>' : '—')) + '</td>' +
+        '<td>' + esc(x.services.map(svcName).join(', ')) + '</td><td>' + (x.profile_id ? esc(name(x.profile_id)) : '<span class="muted small">—</span>') + '</td><td class="n">' + n + '</td>' +
+        '<td><div class="row" style="flex-wrap:nowrap"><button type="button" class="btn sm" data-act="x-edit" data-id="' + x.id + '">Modifier</button>' +
+        (!miss.length && rate && !x.archived ? '<button type="button" class="btn sm brass" data-act="x-contract" data-extra="' + x.id + '">Contrat</button>' : '') + '</div></td></tr>';
+    }).join('');
+    return '<section class="panel"><h3 style="margin-top:0">Registre des extras</h3>' +
+      '<p class="hint">Fiche complète (adresse, niveau, échelon) = contrat possible. Reliez la fiche à sa ligne du planning : le contrat peut alors être imprimé depuis chacun de ses shifts.</p>' +
+      '<label class="row small" style="margin-bottom:10px"><input type="checkbox" data-change="x-arch"' + (showArch ? ' checked' : '') + '> Afficher les fiches archivées</label>' +
+      (rows ? '<div class="table-wrap"><table><thead><tr><th>Nom</th><th>Adresse</th><th>Poste</th><th>Niv. / éch.</th><th>Catégorie</th><th class="n">Taux</th><th>Services</th><th>Ligne du planning</th><th class="n">Contrats</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+        : '<div class="empty">Aucun extra enregistré. « Nouvel extra » pour créer la première fiche.</div>') + '</section>';
+  }
+
+  /* Fiche d'un extra (création / modification). pid : ligne du planning à relier (préremplit le nom). */
+  async function openExtra(x, pid, after) {
+    if (!S.extras) await loadExtras();
+    var isNew = !x, list = xSvcList(), p = pid ? S.profiles.find(function (q) { return q.id === pid; }) : null;
+    if (isNew) {
+      var nm = splitName(p ? p.full_name : '');
+      x = { last_name: nm.last, first_name: nm.first, services: p ? (p.services || []).filter(function (s) { return list.indexOf(s) >= 0; }) : (S.xSvc && S.xSvc !== 'all' ? [S.xSvc] : list.slice(0, 1)),
+        profile_id: pid || null, job_title: p ? p.job_title : '', qualified: false };
+    }
+    var levels = [], echelons = []; xGrid().forEach(function (r) { if (levels.indexOf(String(r.level)) < 0) levels.push(String(r.level)); if (echelons.indexOf(String(r.echelon)) < 0) echelons.push(String(r.echelon)); });
+    var people = S.profiles.filter(function (q) { return q.active !== false && ['employee', 'assistant', 'manager'].indexOf(q.role) >= 0 && (q.services || []).some(function (s) { return list.indexOf(s) >= 0; }); })
+      .sort(function (a, b) { return ((b.contract_type === 'extra') - (a.contract_type === 'extra')) || (a.full_name || '').localeCompare(b.full_name || ''); });
+    function inp(id, label, v, more) { return '<label class="f">' + label + '<input type="text" id="xe-' + id + '" value="' + esc(v || '') + '" ' + (more || '') + '></label>'; }
+    dlg.innerHTML = '<form method="dialog" id="xe" novalidate><div class="dlg-h"><div><div class="eyebrow">Registre des extras</div><h3>' + (isNew ? 'Nouvel extra' : esc(xName(x))) + '</h3></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b form">' +
+      '<div class="two">' + inp('last', 'Nom', x.last_name, 'maxlength="60" autocomplete="off"') + inp('first', 'Prénom', x.first_name, 'maxlength="60" autocomplete="off"') + '</div>' +
+      inp('addr', 'Adresse (n° et rue)', x.address, 'maxlength="160"') + '<div class="two">' + inp('cp', 'Code postal', x.postal_code, 'maxlength="10" inputmode="numeric"') + inp('city', 'Ville', x.city, 'maxlength="80"') + '</div>' +
+      '<div class="two">' + inp('phone', 'Téléphone (facultatif)', x.phone, 'maxlength="30" inputmode="tel"') + inp('email', 'E-mail (facultatif)', x.email, 'maxlength="120" inputmode="email"') + '</div>' +
+      inp('job', 'Poste (repris sur le contrat)', x.job_title, 'maxlength="80"') +
+      '<div class="two"><label class="f">Niveau<input type="text" id="xe-level" list="xe-levels" value="' + esc(x.level || '') + '" maxlength="10"></label><label class="f">Échelon<input type="text" id="xe-ech" list="xe-echs" value="' + esc(x.echelon || '') + '" maxlength="10"></label></div>' +
+      '<datalist id="xe-levels">' + levels.map(function (l) { return '<option value="' + esc(l) + '">'; }).join('') + '</datalist><datalist id="xe-echs">' + echelons.map(function (l) { return '<option value="' + esc(l) + '">'; }).join('') + '</datalist>' +
+      '<div class="row"><label class="row"><input type="radio" name="xe-q" value="0"' + (x.qualified ? '' : ' checked') + '> Basique</label><label class="row"><input type="radio" name="xe-q" value="1"' + (x.qualified ? ' checked' : '') + '> Qualifié</label><span class="small" id="xe-rate"></span></div>' +
+      '<div><span class="eyebrow">Services</span><div class="row">' + list.map(function (s) { return '<label class="row"><input type="checkbox" name="xe-svc" value="' + s + '"' + (x.services.indexOf(s) >= 0 ? ' checked' : '') + '> ' + esc(svcName(s)) + '</label>'; }).join('') + '</div></div>' +
+      '<label class="f">Ligne du planning (pour imprimer le contrat depuis ses shifts)<select id="xe-pid"><option value="">— Aucune —</option>' + people.map(function (q) { return '<option value="' + q.id + '"' + (q.id === x.profile_id ? ' selected' : '') + '>' + esc(q.full_name + (q.contract_type === 'extra' ? ' (extra)' : '')) + ' · ' + esc((q.services || []).map(svcName).join(', ')) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="f">Notes<input type="text" id="xe-notes" value="' + esc(x.notes || '') + '" maxlength="200"></label>' +
+      (isNew ? '' : '<label class="row"><input type="checkbox" id="xe-arch"' + (x.archived ? ' checked' : '') + '> Fiche archivée (n\'apparaît plus dans les listes ; ses contrats restent dans l\'historique)</label>') +
+      '<div class="err" id="xe-err" role="alert"></div></div><div class="dlg-f"><div>' + (isNew ? '' : '<button type="button" class="btn danger" data-x-del>Supprimer</button>') + '</div><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button type="submit" class="btn primary">Enregistrer</button></div></div></form>';
+    var f = dlg.querySelector('#xe');
+    function v(id) { return f.querySelector('#xe-' + id).value.trim(); }
+    function q() { return (f.querySelector('input[name=xe-q]:checked') || {}).value === '1'; }
+    function showRate() {
+      var r = xRate(v('level'), v('ech'), q()), el = f.querySelector('#xe-rate');
+      el.innerHTML = !v('level') || !v('ech') ? '' : r ? 'Taux de la grille : <b>' + euro(r) + ' /h brut</b>' : '<span style="color:var(--bad)">Niveau / échelon absent de la grille des salaires</span>';
+    }
+    f.addEventListener('input', showRate); f.addEventListener('change', showRate); showRate();
+    f.addEventListener('click', async function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      if (b.hasAttribute('data-close')) { dlg.close(); return; }
+      if (b.hasAttribute('data-x-del')) {
+        if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmer la suppression'; return; }
+        try { await attempt(function () { return Store.deleteExtra(x.id); }, 'Fiche supprimée'); dlg.close(); S.extras = null; render(); } catch (err) {}
+      }
+    });
+    f.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var row = { id: x.id, last_name: v('last'), first_name: v('first'), address: v('addr'), postal_code: v('cp'), city: v('city'), phone: v('phone'), email: v('email'), job_title: v('job'),
+        level: v('level'), echelon: v('ech'), qualified: q(), notes: v('notes'), profile_id: f.querySelector('#xe-pid').value || null,
+        services: [].slice.call(f.querySelectorAll('input[name=xe-svc]:checked')).map(function (i) { return +i.value; }) };
+      if (!isNew) row.archived = f.querySelector('#xe-arch').checked;
+      var err = f.querySelector('#xe-err');
+      if (!row.last_name || !row.first_name) { err.textContent = 'Nom et prénom obligatoires.'; return; }
+      if (!row.services.length) { err.textContent = 'Choisissez au moins un service.'; return; }
+      if (row.profile_id && (S.extras || []).some(function (o) { return o.profile_id === row.profile_id && o.id !== x.id && !o.archived; })) { err.textContent = name(row.profile_id) + ' est déjà relié(e) à une autre fiche d\'extra.'; return; }
+      try { var saved = await Store.saveExtra(row); } catch (ex) { err.textContent = ex.message; return; }
+      toast(isNew ? 'Extra enregistré' : 'Fiche mise à jour'); dlg.close(); await loadExtras();
+      if (after) after(saved); else render();
+    });
+    dlg.showModal();
+  }
+
+  /* Nouveau contrat (ou modification d'un contrat à signer). o : { extra, shift, contract } */
+  async function openContract(o) {
+    o = o || {}; if (!S.extras) await loadExtras();
+    var list = xSvcList(), c = o.contract, sh = o.shift;
+    var extras = S.extras.filter(function (x) { return !x.archived && x.services.some(function (s) { return list.indexOf(s) >= 0; }); });
+    var cur = c ? { extra_id: c.extra_id, service_id: c.service_id, day: c.day, start_time: hhmm(c.start_time).replace('h', ':'), end_time: hhmm(c.end_time).replace('h', ':'), break_min: c.break_min, job_title: c.job_title }
+      : { extra_id: o.extra || (extras[0] || {}).id, service_id: sh ? sh.service_id : null, day: sh ? sh.day : today(), start_time: sh ? String(sh.start_time).slice(0, 5) : '09:00', end_time: sh ? String(sh.end_time).slice(0, 5) : '17:00', break_min: null, job_title: '' };
+    if (!extras.length && !c) { toast('Créez d\'abord la fiche de l\'extra (bouton « Nouvel extra »).', true); return; }
+    dlg.innerHTML = '<form method="dialog" id="xc" novalidate><div class="dlg-h"><div><div class="eyebrow">Contrat d\'extra' + (sh ? ' · depuis le planning' : '') + '</div><h3>' + (c ? 'Modifier le contrat' : 'Nouveau contrat') + '</h3></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b form">' +
+      (c ? '<div class="banner info">' + esc(c.extra_name) + ' · ' + esc(svcName(c.service_id)) + '</div>' :
+      '<label class="f">Extra<select id="xc-extra">' + extras.map(function (x) { var m = xMissing(x); return '<option value="' + x.id + '"' + (x.id === cur.extra_id ? ' selected' : '') + '>' + esc(xName(x)) + (m.length ? ' (fiche à compléter : ' + m.join(', ') + ')' : '') + '</option>'; }).join('') + '</select></label>' +
+      '<label class="f">Service<select id="xc-svc"></select></label>') +
+      '<div class="two"><label class="f">Date<input type="date" id="xc-day" value="' + cur.day + '"' + (sh ? ' readonly' : '') + '></label><label class="f">Poste<input type="text" id="xc-job" maxlength="80" value="' + esc(cur.job_title || '') + '" placeholder="Poste de la fiche"></label></div>' +
+      '<div class="two"><label class="f">Début<input type="time" id="xc-start" value="' + esc(cur.start_time) + '"></label><label class="f">Fin<input type="time" id="xc-end" value="' + esc(cur.end_time) + '"></label></div>' +
+      '<label class="f">Pause (minutes, vide = automatique)<input type="number" id="xc-break" min="0" max="240" step="5" value="' + (cur.break_min == null ? '' : cur.break_min) + '"></label>' +
+      '<div class="hint" id="xc-calc"></div><div class="err" id="xc-err" role="alert"></div></div>' +
+      '<div class="dlg-f"><div></div><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button>' + (c ? '<button type="submit" class="btn primary">Enregistrer</button>' :
+        '<button type="submit" class="btn" data-print="0">Créer</button><button type="submit" class="btn primary" data-print="1">Créer et imprimer</button>') + '</div></div></form>';
+    var f = dlg.querySelector('#xc');
+    function x() { return c ? S.extras.find(function (e) { return e.id === c.extra_id; }) || { level: c.level, echelon: c.echelon, qualified: c.qualified, job_title: c.job_title } : S.extras.find(function (e) { return e.id === f.querySelector('#xc-extra').value; }); }
+    function fillSvc() {
+      if (c) return; var sel = f.querySelector('#xc-svc'), ex = x(), opts = ex ? ex.services.filter(function (s) { return list.indexOf(s) >= 0; }) : [];
+      if (sh) opts = [sh.service_id];
+      var keep = +sel.value || cur.service_id || (S.xSvc !== 'all' ? S.xSvc : null);
+      sel.innerHTML = opts.map(function (s) { return '<option value="' + s + '"' + (s === keep ? ' selected' : '') + '>' + esc(svcName(s)) + '</option>'; }).join('');
+      var jb = f.querySelector('#xc-job'); jb.placeholder = (ex && ex.job_title) || 'Poste';
+    }
+    function read() {
+      var br = f.querySelector('#xc-break').value, row = { day: f.querySelector('#xc-day').value, start_time: f.querySelector('#xc-start').value, end_time: f.querySelector('#xc-end').value, job_title: f.querySelector('#xc-job').value.trim() };
+      var auto = C.shiftDetail({ kind: 'work', day: row.day || today(), start_time: row.start_time, end_time: row.end_time }).breakMin;
+      row.break_min = br === '' ? auto : Math.max(0, Math.min(240, +br || 0));
+      if (!c) { row.extra_id = f.querySelector('#xc-extra').value; row.service_id = +f.querySelector('#xc-svc').value; row.shift_id = sh ? sh.id : null; }
+      return row;
+    }
+    function calc() {
+      var r = read(), ex = x(), out = f.querySelector('#xc-calc');
+      if (!r.start_time || !r.end_time) { out.textContent = ''; return; }
+      var w = C.shiftDetail({ kind: 'work', day: r.day || today(), start_time: r.start_time, end_time: r.end_time, break_min: r.break_min }).worked;
+      var rate = c ? c.hourly_rate : ex && xRate(ex.level, ex.echelon, ex.qualified), miss = c ? [] : xMissing(ex);
+      out.innerHTML = fmt(w) + ' travaillées (pause ' + r.break_min + ' min)' + (ex ? ' · niveau ' + esc(ex.level || '?') + ' échelon ' + esc(ex.echelon || '?') + ' ' + (ex.qualified ? 'qualifié' : 'basique') : '') +
+        (rate ? ' · <b>' + euro(rate) + ' /h</b> · ' + euro(Math.round(w / 60 * rate * 100) / 100) + ' brut' : '') +
+        (miss.length ? '<div class="err">Fiche à compléter : ' + miss.join(', ') + ' (Registre des extras).</div>' : !rate ? '<div class="err">Niveau / échelon absent de la grille des salaires d\'extra.</div>' : '');
+    }
+    f.addEventListener('change', function (e) { if (e.target.id === 'xc-extra') fillSvc(); calc(); });
+    f.addEventListener('input', calc);
+    f.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) dlg.close(); });
+    f.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var r = read(), err = f.querySelector('#xc-err'), pr = e.submitter && e.submitter.dataset.print === '1';
+      if (!r.day || !r.start_time || !r.end_time) { err.textContent = 'Date, début et fin obligatoires.'; return; }
+      if (!c && !r.service_id) { err.textContent = 'Choisissez le service.'; return; }
+      try { var saved = c ? await Store.updateExtraContract(c.id, r) : await Store.createExtraContract(r); } catch (ex) { err.textContent = ex.message; return; }
+      dlg.close(); toast(c ? 'Contrat modifié' : 'Contrat créé (à signer)');
+      if (pr) await printContract(saved);
+      render();
+    });
+    fillSvc(); calc();
+    dlg.showModal();
+  }
+
+  /* Contrat depuis un shift du planning : crée le contrat s'il n'existe pas, puis l'imprime */
+  async function contractFromShift(shiftId, sh) {
+    if (!sh) sh = (await Store.shifts(C.addDays(today(), -400), C.addDays(today(), 400))).find(function (s) { return s.id === shiftId; });
+    if (!sh) { toast('Shift introuvable.', true); return; }
+    await loadExtras();
+    var cur = (await Store.extraContracts({ shiftId: sh.id })).find(function (k) { return k.status !== 'cancelled'; });
+    if (cur) { await printContract(cur); return cur; }
+    var x = extraOfProfile(sh.employee_id);
+    if (!x || xMissing(x).length) { openExtra(x || null, sh.employee_id); return; }
+    var br = C.shiftDetail(Object.assign({}, sh, { actual_start: null, actual_end: null })).breakMin;
+    try {
+      var c = await attempt(function () { return Store.createExtraContract({ extra_id: x.id, service_id: sh.service_id, shift_id: sh.id, day: sh.day, start_time: String(sh.start_time).slice(0, 5), end_time: String(sh.end_time).slice(0, 5), break_min: br }); }, 'Contrat créé (à signer)');
+      await printContract(c); return c;
+    } catch (e) {}
+  }
+
+  /* ---------- Impression du contrat (modèle provisoire, remplacé par le formulaire de l'établissement) ---------- */
+  function contractHtml(c) {
+    var co = curCompany(), w = cWorked(c), tot = cTotal(c);
+    var coAddr = [co.address, [co.postal_code, co.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    function L(k, v) { return '<tr><th>' + k + '</th><td>' + (v ? esc(v) : '<span class="blank"></span>') + '</td></tr>'; }
+    return '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Contrat extra ' + esc(c.extra_name) + ' ' + dFr(c.day) + '</title><style>' +
+      '@page{size:A4;margin:16mm 16mm 14mm}*{box-sizing:border-box}body{font:10.5pt/1.45 Georgia,"Times New Roman",serif;color:#111;margin:0}' +
+      'h1{font:700 14pt/1.25 Arial,Helvetica,sans-serif;text-align:center;margin:0 0 2px;letter-spacing:.02em}.sub{text-align:center;font:9pt Arial,sans-serif;color:#444;margin-bottom:14px}' +
+      'h2{font:700 9.5pt Arial,sans-serif;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #111;padding-bottom:2px;margin:14px 0 6px}' +
+      'table{border-collapse:collapse;width:100%}th{text-align:left;font:600 9pt Arial,sans-serif;color:#333;width:38%;padding:3px 8px 3px 0;vertical-align:top}td{padding:3px 0;vertical-align:top}' +
+      '.blank{display:inline-block;min-width:60mm;border-bottom:1px dotted #555}.money td{font-variant-numeric:tabular-nums}' +
+      '.sig{display:grid;grid-template-columns:1fr 1fr;gap:12mm;margin-top:10mm}.sig div{border:1px solid #111;height:34mm;padding:6px 8px;font:9pt Arial,sans-serif}' +
+      '.foot{margin-top:8mm;font:7.5pt Arial,sans-serif;color:#666;text-align:center}p{margin:4px 0}</style></head><body>' +
+      '<h1>CONTRAT DE TRAVAIL À DURÉE DÉTERMINÉE D\'USAGE — EXTRA</h1><div class="sub">Articles L1242-2 3° et D1242-1 du Code du travail' + (co.collective_agreement ? ' · ' + esc(co.collective_agreement) : '') + '</div>' +
+      '<h2>Entre l\'employeur</h2><table>' + L('Société', co.legal_name || co.name) + L('Établissement', co.name) + L('Adresse', coAddr) + L('SIRET', co.siret) + L('Code APE', co.ape_code) + L('Représentée par', co.director) + '</table>' +
+      '<h2>Et le salarié</h2><table>' + L('Nom et prénom', c.extra_name) + L('Adresse', c.extra_address) + '</table>' +
+      '<h2>Mission</h2><table>' + L('Poste', c.job_title) + L('Service', svcName(c.service_id)) + L('Date', dayLong(c.day) + ' ' + c.day.slice(0, 4)) +
+      L('Horaires', hhmm(c.start_time) + ' – ' + hhmm(c.end_time) + ' (pause ' + (c.break_min || 0) + ' min)') + L('Durée de travail', fmt(w)) + L('Lieu de travail', coAddr || co.name) + '</table>' +
+      '<h2>Classification et rémunération</h2><table class="money">' + L('Niveau / échelon', (c.level || '') + ' / ' + (c.echelon || '')) + L('Catégorie', c.qualified ? 'Qualifié' : 'Basique') +
+      L('Taux horaire brut', euro(c.hourly_rate)) + L('Salaire brut de la mission', euro(tot) + ' (' + fmt(w) + ' × ' + euro(c.hourly_rate) + ')') + '</table>' +
+      '<p>Le salarié est engagé en qualité d\'extra pour la mission ci-dessus, emploi pour lequel il est d\'usage constant de ne pas recourir au contrat à durée indéterminée. Le contrat prend fin à l\'issue de la mission. ' +
+      'S\'y ajoutent l\'indemnité compensatrice de congés payés et les éléments prévus par la convention collective applicable.</p>' +
+      '<p>Fait en deux exemplaires originaux' + (co.city ? ', à ' + esc(co.city) : '') + ', le ' + dFr(c.day) + '.</p>' +
+      '<div class="sig"><div>L\'employeur<br><span style="color:#666">nom, qualité, signature</span></div><div>Le salarié<br><span style="color:#666">« lu et approuvé », signature</span></div></div>' +
+      '<div class="foot">Contrat n° ' + esc(String(c.id).slice(0, 8).toUpperCase()) + ' · édité par HPG le ' + stamp() + ' · modèle provisoire</div></body></html>';
+  }
+  async function printContract(c) {
+    var fr = document.createElement('iframe');
+    fr.setAttribute('aria-hidden', 'true'); fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(fr);
+    var d = fr.contentWindow.document; d.open(); d.write(contractHtml(c)); d.close();
+    setTimeout(function () { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('Impression impossible : ' + e.message, true); } setTimeout(function () { fr.remove(); }, 60000); }, 300);
+    try { await Store.markExtraPrinted(c.id); } catch (e) {}
+  }
+  async function contractById(id) { return (await Store.extraContracts({})).find(function (k) { return k.id === id; }); }
+  function openCancelContract(c) {
+    dlg.innerHTML = '<form method="dialog" id="xk" novalidate><div class="dlg-h"><div><div class="eyebrow">' + esc(c.extra_name) + ' · ' + dFr(c.day) + '</div><h3>Annuler le contrat</h3></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b form">' +
+      '<p>Le contrat reste dans l\'historique avec la mention « Annulé ». Il ne pourra plus être imprimé ni modifié.</p><label class="f">Motif<input type="text" id="xk-r" maxlength="160" placeholder="Ex. : mission annulée"></label><div class="err" id="xk-err" role="alert"></div></div>' +
+      '<div class="dlg-f"><div></div><div class="row"><button type="button" class="btn ghost" data-close>Retour</button><button type="submit" class="btn danger">Annuler le contrat</button></div></div></form>';
+    var f = dlg.querySelector('#xk');
+    f.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) dlg.close(); });
+    f.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      try { await Store.setExtraContractStatus(c.id, 'cancelled', f.querySelector('#xk-r').value.trim()); } catch (ex) { f.querySelector('#xk-err').textContent = ex.message; return; }
+      dlg.close(); toast('Contrat annulé'); render();
+    });
+    dlg.showModal();
+  }
+  async function setContract(id, status, okMsg) {
+    try { await attempt(function () { return Store.setExtraContractStatus(id, status); }, okMsg); render(); } catch (e) {}
+  }
+  /* Paramètres → Extras : grille des salaires (taux horaire brut par niveau / échelon, basique et qualifié) */
+  function extraGridCard() {
+    var g = (S.xgDraft || xGrid()).slice();
+    if (!g.length) g.push({ level: '', echelon: '', basic: '', qualified: '' });
+    function cell(i, k, v, t) { return '<td><input type="' + (t || 'text') + '" data-xg="' + i + '.' + k + '" value="' + esc(v == null ? '' : String(v)) + '"' + (t ? ' step="0.01" min="0" inputmode="decimal" style="width:110px"' : ' maxlength="10" style="width:80px"') + '></td>'; }
+    return '<section class="panel form scard"><div class="scard-h"><span class="scard-i">' + ICON.sheet + '</span><div><h3>Grille des salaires d\'extra</h3><div class="small muted">Taux horaire brut par niveau et échelon, en basique ou en qualifié. Le taux est copié dans chaque contrat au moment où il est créé : changer la grille ne modifie pas les contrats déjà faits.</div></div></div>' +
+      '<div class="table-wrap" style="border:0"><table><thead><tr><th>Niveau</th><th>Échelon</th><th>Basique (€ / h)</th><th>Qualifié (€ / h)</th><th></th></tr></thead><tbody>' +
+      g.map(function (r, i) { return '<tr data-xg-row="' + i + '">' + cell(i, 'level', r.level) + cell(i, 'echelon', r.echelon) + cell(i, 'basic', r.basic, 'number') + cell(i, 'qualified', r.qualified, 'number') + '<td><button type="button" class="btn sm ghost danger" data-act="xg-del" data-i="' + i + '">Retirer</button></td></tr>'; }).join('') +
+      '</tbody></table></div><div class="row" style="justify-content:space-between"><button type="button" class="btn sm" data-act="xg-add">Ajouter une ligne</button><button type="button" class="btn sm primary" data-act="xg-save">Enregistrer la grille</button></div></section>';
+  }
+  function readGrid(skip) {
+    var rows = {}; document.querySelectorAll('[data-xg]').forEach(function (el) { var p = el.dataset.xg.split('.'); (rows[p[0]] = rows[p[0]] || {})[p[1]] = el.value.trim(); });
+    return Object.keys(rows).filter(function (i) { return String(i) !== String(skip); }).map(function (i) { return rows[i]; });
+  }
+  var X_ACTIONS = {
+    'x-tab': function (b) { S.xTab = b.dataset.v; render(); },
+    'x-filter': function (b) { S.xFilter = b.dataset.v; render(); },
+    'x-grid': function () { S.view = 'parametres'; S.setCat = 'extras'; render(); window.scrollTo(0, 0); },
+    'x-edit': async function (b) {
+      if (!S.extras) await loadExtras();
+      var x = b.dataset.id ? S.extras.find(function (e) { return e.id === b.dataset.id; }) : null;
+      openExtra(x, x ? null : (b.dataset.pid || null));
+    },
+    'x-contract': function (b) { openContract({ extra: b.dataset.extra || null }); },
+    'xc-from-shift': function (b) { contractFromShift(b.dataset.id).then(function () { render(); }); },
+    'xc-print': async function (b) { var c = await contractById(b.dataset.id); if (c) { await printContract(c); render(); } },
+    'xc-editc': async function (b) { var c = await contractById(b.dataset.id); if (c) openContract({ contract: c }); },
+    'xc-sign': function (b) { setContract(b.dataset.id, 'signed', 'Contrat marqué signé'); },
+    'xc-unsign': function (b) {
+      if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmer'; return; }
+      setContract(b.dataset.id, 'to_sign', 'Signature retirée');
+    },
+    'xc-cancel': async function (b) { var c = await contractById(b.dataset.id); if (c) openCancelContract(c); },
+    'xg-add': function () { S.xgDraft = readGrid().concat([{ level: '', echelon: '', basic: '', qualified: '' }]); render(); },
+    'xg-del': function (b) { S.xgDraft = readGrid(b.dataset.i); render(); },
+    'xg-save': async function () {
+      var g = readGrid().filter(function (r) { return r.level || r.echelon || r.basic || r.qualified; }), seen = {}, bad = '';
+      g = g.map(function (r) {
+        var o = { level: r.level.toUpperCase(), echelon: r.echelon, basic: r.basic === '' ? null : Math.round(+String(r.basic).replace(',', '.') * 100) / 100, qualified: r.qualified === '' ? null : Math.round(+String(r.qualified).replace(',', '.') * 100) / 100 };
+        if (!o.level || !o.echelon) bad = 'Chaque ligne doit avoir un niveau et un échelon.';
+        else if (seen[o.level + '|' + o.echelon]) bad = 'Niveau ' + o.level + ' échelon ' + o.echelon + ' en double.';
+        else if ((o.basic != null && !(o.basic > 0)) || (o.qualified != null && !(o.qualified > 0)) || (o.basic == null && o.qualified == null)) bad = 'Taux invalide pour le niveau ' + o.level + ' échelon ' + o.echelon + '.';
+        seen[o.level + '|' + o.echelon] = 1; return o;
+      });
+      if (bad) { toast(bad, true); return; }
+      try { S.settings = await attempt(function () { return Store.saveSettings({ extra_grid: g }); }, 'Grille enregistrée'); S.xgDraft = null; render(); } catch (e) {}
+    }
+  };
+
   var A = {
     go: function (b) { if (b.dataset.v === 'parametres' && b.closest('.palette')) S.tplSvc = null; S.view = b.dataset.v; S.notifOpen = false; S.menuOpen = false; render(); window.scrollTo(0, 0); },
     'co-new': function () { openCompany(null); },
@@ -2540,6 +2924,7 @@
       try { S.settings = await attempt(function () { return Store.saveSettings(JSON.parse(JSON.stringify(patch))); }, 'Valeurs par défaut rétablies'); applyDayTypes(); C.setRules(S.settings); render(); } catch (e) {}
     }
   };
+  Object.assign(A, X_ACTIONS);
   function delegate(e) {
     var b = e.target.closest('[data-act]');
     if (!b) { if (e.currentTarget === app && S.notifOpen && !e.target.closest('.notif-wrap')) { S.notifOpen = false; render(); } return; }
@@ -2600,6 +2985,8 @@
     if (a === 'view-as') { if (e.target.value) enterPreview(e.target.value); else exitPreview(); return; }
     if (a === 'svc') { S.svc = +e.target.value; S.prEmp = null; S.armed = null; S.armedKey = null; render(); }
     if (a === 'tpl-svc') { S.tplSvc = e.target.value; render(); }
+    if (a === 'x-svc') { S.xSvc = e.target.value === 'all' ? 'all' : +e.target.value; render(); }
+    if (a === 'x-arch') { S.xArch = e.target.checked; render(); }
     if (a === 'livr') {
       var cb = e.target, dl = cb.dataset.day;
       Store.saveStaffingValue(S.svc, dl, '_livr', cb.checked ? 1 : null).then(function () {
@@ -2751,7 +3138,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '54';
+  var APP_VERSION = '55';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {

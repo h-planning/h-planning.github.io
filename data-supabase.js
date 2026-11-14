@@ -198,6 +198,40 @@
     },
     deleteTemplate: async function (id) { must(await sb.from('shift_templates').delete().eq('id', id)); },
 
+    /* Extras : registre (fiches) et contrats d'extra. Les contrats ne se suppriment pas (historique). */
+    extras: async function () { return must(await sb.from('extras').select('*').order('last_name').order('first_name')); },
+    saveExtra: async function (x) {
+      var row = {}; ['services', 'profile_id', 'last_name', 'first_name', 'address', 'postal_code', 'city', 'phone', 'email', 'job_title', 'level', 'echelon', 'qualified', 'notes', 'archived'].forEach(function (k) { if (x[k] !== undefined) row[k] = x[k] === '' ? null : x[k]; });
+      if (x.id) return must(await sb.from('extras').update(row).eq('id', x.id).select().single());
+      return must(await sb.from('extras').insert(row).select().single());
+    },
+    deleteExtra: async function (id) {
+      var r = await sb.from('extras').delete().eq('id', id);
+      if (r.error) throw new Error(/foreign key|violates/i.test(r.error.message) ? 'Cet extra a des contrats : archivez sa fiche plutôt (les contrats restent dans l\'historique).' : translate(r.error.message));
+    },
+    extraContracts: async function (f) {
+      var q = sb.from('extra_contracts').select('*').order('day', { ascending: false }).order('start_time');
+      f = f || {};
+      if (f.serviceId) q = q.eq('service_id', f.serviceId);
+      if (f.shiftId) q = q.eq('shift_id', f.shiftId);
+      if (f.extraId) q = q.eq('extra_id', f.extraId);
+      if (f.from) q = q.gte('day', f.from);
+      if (f.to) q = q.lte('day', f.to);
+      return must(await q);
+    },
+    createExtraContract: async function (c) {
+      return must(await sb.from('extra_contracts').insert({ service_id: c.service_id, extra_id: c.extra_id, shift_id: c.shift_id || null, day: c.day, start_time: c.start_time, end_time: c.end_time, break_min: c.break_min || 0, job_title: c.job_title || null }).select().single());
+    },
+    updateExtraContract: async function (id, patch) {
+      var row = {}; ['day', 'start_time', 'end_time', 'break_min', 'job_title'].forEach(function (k) { if (patch[k] !== undefined) row[k] = patch[k]; });
+      return must(await sb.from('extra_contracts').update(row).eq('id', id).select().single());
+    },
+    setExtraContractStatus: async function (id, status, reason) {
+      var row = { status: status }; if (status === 'cancelled') row.cancel_reason = reason || null;
+      return must(await sb.from('extra_contracts').update(row).eq('id', id).select().single());
+    },
+    markExtraPrinted: async function (id) { must(await sb.from('extra_contracts').update({ printed_at: new Date().toISOString() }).eq('id', id)); },
+
     notifications: async function () { return must(await sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(40)); },
     markAllRead: async function () { must(await sb.from('notifications').update({ read_at: new Date().toISOString() }).is('read_at', null).eq('user_id', me.id)); },
 

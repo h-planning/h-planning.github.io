@@ -464,7 +464,27 @@
     return ins + ((profile(empId) || {}).recup_adjust_min || 0) - used;
   }
 
-  db = load(); me = profile(db.currentUser);
+  /* Extras (registre et contrats) : ajoutés aux données de démo existantes sans les remettre à zéro */
+  var DEMO_GRID = [['I', '1', 12.02, 12.30], ['I', '2', 12.10, 12.40], ['I', '3', 12.20, 12.55], ['II', '1', 12.35, 12.70], ['II', '2', 12.50, 12.90], ['II', '3', 12.70, 13.10],
+    ['III', '1', 12.90, 13.40], ['III', '2', 13.10, 13.70], ['III', '3', 13.40, 14.00]].map(function (r) { return { level: r[0], echelon: r[1], basic: r[2], qualified: r[3] }; });
+  function upgradeExtras(d) {
+    d.extras = d.extras || []; d.xcontracts = d.xcontracts || [];
+    Object.keys(d.settingsBy || {}).forEach(function (k) {
+      var st = d.settingsBy[k]; if (!st.extra_grid) st.extra_grid = clone(DEMO_GRID);
+      var r = st.rights || (st.rights = {});
+      r.manager = Object.assign({ extras: true, extras_sign: true }, r.manager); r.assistant = Object.assign({ extras: true, extras_sign: false }, r.assistant);
+    });
+    if (!d.extrasSeeded) {
+      d.extrasSeeded = true;
+      var x1 = (d.profiles || []).find(function (p) { return p.id === 'x1'; });
+      d.extras.push({ id: uid(), company_id: 1, services: [1], profile_id: x1 ? 'x1' : null, last_name: 'RICCI', first_name: 'Paolo', address: '12 rue Exemple', postal_code: '75017', city: 'Paris', phone: null, email: null,
+        job_title: 'Réceptionniste', level: 'II', echelon: '2', qualified: true, notes: 'Fiche d\'exemple (démonstration)', archived: false, created_by: 'm1', created_at: nowIso(), updated_at: nowIso() });
+      d.extras.push({ id: uid(), company_id: 1, services: [2, 4], profile_id: null, last_name: 'FONTAINE', first_name: 'Chloé', address: '', postal_code: '', city: '', phone: null, email: null,
+        job_title: 'Employée polyvalente', level: 'I', echelon: '1', qualified: false, notes: 'Adresse à compléter', archived: false, created_by: 'm2', created_at: nowIso(), updated_at: nowIso() });
+    }
+    return d;
+  }
+  db = upgradeExtras(load()); save(); me = profile(db.currentUser);
   function ok(v) { save(); return Promise.resolve(clone(v)); }
   /* opération atomique : en cas de refus, la base de démo est remise dans son état précédent */
   function run(fn) {
@@ -479,7 +499,7 @@
     me: function () { return me && clone(me); },
     init: function () { me = profile(db.currentUser); return Promise.resolve(me && me.active ? clone(me) : null); },
     onAuthChange: function () {},
-    resetDemo: function () { try { localStorage.removeItem(KEY); } catch (e) {} db = seed(); me = null; save(); },
+    resetDemo: function () { try { localStorage.removeItem(KEY); } catch (e) {} db = upgradeExtras(seed()); me = null; save(); },
     signIn: function (email, pw) {
       return run(function () {
         var p = db.profiles.find(function (x) { return x.has_account && x.email && x.email.toLowerCase() === String(email).trim().toLowerCase(); });
@@ -922,6 +942,89 @@
         me.company_id = +id; return me;
       });
     },
+    /* ---------- Extras (mêmes règles que la base) ---------- */
+    extras: function () {
+      return ok(db.extras.filter(function (x) { return x.company_id === myCo() && x.services.some(function (s) { return can('extras', s); }); })
+        .sort(function (a, b) { return (a.last_name + a.first_name).localeCompare(b.last_name + b.first_name); }));
+    },
+    saveExtra: function (x) {
+      return run(function () {
+        var old = x.id ? db.extras.find(function (e) { return e.id === x.id && e.company_id === myCo(); }) : null;
+        if (x.id && !old) fail('Extra introuvable.');
+        if (old && !old.services.some(function (s) { return can('extras', s); })) fail('Vous n\'avez pas accès à cet extra.');
+        var row = Object.assign({}, old || { id: uid(), created_by: me.id, created_at: nowIso(), archived: false, qualified: false, services: [] });
+        ['services', 'profile_id', 'last_name', 'first_name', 'address', 'postal_code', 'city', 'phone', 'email', 'job_title', 'level', 'echelon', 'qualified', 'notes', 'archived'].forEach(function (k) { if (x[k] !== undefined) row[k] = x[k] === '' ? null : x[k]; });
+        row.last_name = String(row.last_name || '').trim().toUpperCase(); row.first_name = String(row.first_name || '').trim();
+        if (!row.last_name || !row.first_name) fail('Nom et prénom obligatoires.');
+        if (!(row.services || []).length) fail('Choisissez au moins un service.');
+        if (!row.services.every(function (s) { return can('extras', s); })) fail('Vous n\'avez pas accès à l\'un de ces services.');
+        row.company_id = svcCo(row.services[0]); row.updated_at = nowIso();
+        if (old) { var o0 = clone(old); Object.assign(old, row); audit('extras', old, 'UPDATE', o0); return old; }
+        db.extras.push(row); audit('extras', row, 'INSERT'); return row;
+      });
+    },
+    deleteExtra: function (id) {
+      return run(function () {
+        var x = db.extras.find(function (e) { return e.id === id && e.company_id === myCo(); });
+        if (!x || !x.services.some(function (s) { return can('extras', s); })) fail('Extra introuvable.');
+        if (db.xcontracts.some(function (c) { return c.extra_id === id; })) fail('Cet extra a des contrats : archivez sa fiche plutôt (les contrats restent dans l\'historique).');
+        db.extras = db.extras.filter(function (e) { return e.id !== id; }); audit('extras', null, 'DELETE', x);
+      });
+    },
+    extraContracts: function (f) {
+      f = f || {};
+      return ok(db.xcontracts.filter(function (c) {
+        return c.company_id === myCo() && can('extras', c.service_id) && (!f.serviceId || c.service_id === f.serviceId) && (!f.shiftId || c.shift_id === f.shiftId) &&
+          (!f.extraId || c.extra_id === f.extraId) && (!f.from || c.day >= f.from) && (!f.to || c.day <= f.to);
+      }).sort(function (a, b) { return b.day.localeCompare(a.day) || String(a.start_time).localeCompare(String(b.start_time)); }));
+    },
+    createExtraContract: function (c) {
+      return run(function () {
+        if (!can('extras', c.service_id)) fail('Vous n\'avez pas le droit de faire des contrats d\'extra pour ce service.');
+        var x = db.extras.find(function (e) { return e.id === c.extra_id; });
+        if (!x || x.company_id !== svcCo(c.service_id)) fail('Extra introuvable.');
+        if (!String(x.address || '').trim() || !x.level || !x.echelon) fail('Fiche de l\'extra incomplète : renseignez l\'adresse, le niveau et l\'échelon.');
+        if (c.shift_id && !db.shifts.some(function (s) { return s.id === c.shift_id && s.service_id === c.service_id && s.kind === 'work'; })) fail('Shift introuvable dans ce service.');
+        if (!c.day || !c.start_time || !c.end_time) fail('Date et horaires obligatoires.');
+        var g = (ST(svcCo(c.service_id)).extra_grid || []).find(function (r) { return r.level === x.level && r.echelon === x.echelon; });
+        var rate = g ? +(x.qualified ? g.qualified : g.basic) : null;
+        if (!rate) fail('Niveau ' + x.level + ' échelon ' + x.echelon + ' (' + (x.qualified ? 'qualifié' : 'basique') + ') absent de la grille des salaires d\'extra (Paramètres).');
+        var row = { id: uid(), company_id: svcCo(c.service_id), service_id: c.service_id, extra_id: x.id, shift_id: c.shift_id || null, day: c.day, start_time: hm5(c.start_time), end_time: hm5(c.end_time),
+          break_min: +c.break_min || 0, job_title: (c.job_title || '').trim() || x.job_title || null, extra_name: x.last_name + ' ' + x.first_name,
+          extra_address: [String(x.address || '').trim(), [x.postal_code, x.city].filter(Boolean).join(' ')].filter(Boolean).join(', '),
+          level: x.level, echelon: x.echelon, qualified: !!x.qualified, hourly_rate: rate, status: 'to_sign', printed_at: null, signed_at: null, signed_by: null,
+          cancelled_at: null, cancelled_by: null, cancel_reason: null, created_by: me.id, created_at: nowIso() };
+        db.xcontracts.push(row); audit('extra_contracts', row, 'INSERT'); return row;
+      });
+    },
+    updateExtraContract: function (id, patch) {
+      return run(function () {
+        var c = db.xcontracts.find(function (k) { return k.id === id; });
+        if (!c || !can('extras', c.service_id)) fail('Contrat introuvable.');
+        if (c.status === 'cancelled') fail('Contrat annulé : il ne peut plus être modifié.');
+        if (c.status === 'signed') fail('Contrat signé : il ne peut plus être modifié (annulez-le et faites-en un nouveau).');
+        var o0 = clone(c); ['day', 'start_time', 'end_time', 'break_min', 'job_title'].forEach(function (k) { if (patch[k] !== undefined) c[k] = patch[k]; });
+        audit('extra_contracts', c, 'UPDATE', o0); return c;
+      });
+    },
+    setExtraContractStatus: function (id, status, reason) {
+      return run(function () {
+        var c = db.xcontracts.find(function (k) { return k.id === id; });
+        if (!c || !can('extras', c.service_id)) fail('Contrat introuvable.');
+        if (c.status === 'cancelled') fail('Contrat annulé : il ne peut plus être modifié.');
+        var o0 = clone(c);
+        if (status === 'signed' || status === 'to_sign') {
+          if (!can('extras_sign', c.service_id)) fail(status === 'signed' ? 'Seul le manager du service (ou la direction) peut marquer un contrat signé.' : 'Seul le manager du service (ou la direction) peut retirer la signature.');
+          c.status = status; c.signed_at = status === 'signed' ? nowIso() : null; c.signed_by = status === 'signed' ? me.id : null;
+        } else if (status === 'cancelled') {
+          if (c.status === 'signed' && !isAdm()) fail('Un contrat signé ne peut être annulé que par la direction.');
+          c.status = 'cancelled'; c.cancelled_at = nowIso(); c.cancelled_by = me.id; c.cancel_reason = reason || null;
+        } else fail('Statut inconnu.');
+        audit('extra_contracts', c, 'UPDATE', o0); return c;
+      });
+    },
+    markExtraPrinted: function (id) { return run(function () { var c = db.xcontracts.find(function (k) { return k.id === id; }); if (c && can('extras', c.service_id)) c.printed_at = nowIso(); }); },
+
     notifications: function () { return ok(db.notifications.filter(function (n) { return n.user_id === me.id; }).slice(0, 40)); },
     markAllRead: function () { return run(function () { db.notifications.forEach(function (n) { if (n.user_id === me.id && !n.read_at) n.read_at = nowIso(); }); }); },
     savePush: function () { return Promise.resolve(); }
