@@ -62,70 +62,65 @@
   function isBoss() { return isAdmin() || role() === 'manager' || role() === 'assistant'; }
   function rights(r) { return ((S.settings && S.settings.rights) || {})[r] || {}; }
   /* Droit « r » sur le service « svc » (même règle que la base) */
-  /* ---------- Aperçu « voir comme » (développeur seulement) : l'interface telle qu'un salarié, un assistant,
-     un manager ou un administrateur la voit ; lecture seule, rien n'est enregistré ---------- */
+  /* ---------- « Voir comme » (développeur seulement) : essayer HPG avec le compte d'un salarié, d'un assistant, d'un manager
+     ou d'un administrateur, sur une copie des données en mémoire (bac à sable) ---------- */
   function isRealDev() { return ((S.realMe || S.me) || {}).role === 'developer'; }
-  function previewStore(p) {
-    var W = /^(save|delete|create|update|add|set|replace|publish|unpublish|decide|cancel|credit|accrue|apply|switch|reset|resend|verify|mark|manage)/, READ = { publishedMonths: 1, settings: 1 }, st = {};
-    Object.keys(RealStore).forEach(function (k) {
-      var f = RealStore[k];
-      if (typeof f !== 'function') { st[k] = f; return; }
-      st[k] = W.test(k) && !READ[k] && k !== 'markAllRead' ? function () { return Promise.reject(new Error('Mode aperçu : lecture seule. Revenez à votre compte pour modifier.')); }
-        : k === 'markAllRead' ? function () { return Promise.resolve(); } : f.bind(RealStore);
-    });
-    var svcs = p.services || [], emp = p.role === 'employee', staff = p.role === 'manager' || p.role === 'assistant';
-    function inSvc(x) { return svcs.indexOf(x) >= 0; }
-    var visibleIds = null;
-    async function ids() { if (!visibleIds) visibleIds = (await st.profiles()).map(function (x) { return x.id; }); return visibleIds; }
-    st.profiles = async function () {
-      var all = await RealStore.profiles();
-      if (emp) return all.filter(function (x) { return x.id === p.id; });
-      if (staff) return all.filter(function (x) { return x.id === p.id || (x.role !== 'admin' && x.role !== 'developer' && (x.services || []).some(inSvc)); });
-      return all.filter(function (x) { return x.role !== 'developer'; });
-    };
-    st.shifts = async function (a, b, o) {
-      var list = await RealStore.shifts(a, b, o);
-      if (emp) {
-        var pub = await RealStore.publishedMonths();
-        return list.filter(function (x) { return x.employee_id === p.id && (x.request_id || pub.some(function (m) { return m.service_id === x.service_id && m.month === x.day.slice(0, 8) + '01'; })); });
-      }
-      if (staff) return list.filter(function (x) { return inSvc(x.service_id) || x.employee_id === p.id; });
-      return list;
-    };
-    st.requests = async function () { var l = await RealStore.requests(); return emp ? l.filter(function (x) { return x.employee_id === p.id; }) : staff ? l.filter(function (x) { return inSvc(x.service_id) || x.employee_id === p.id; }) : l; };
-    st.owedDays = async function (o) { var l = await RealStore.owedDays(o), v = await ids(); return l.filter(function (x) { return v.indexOf(x.employee_id) >= 0; }); };
-    st.overtime = async function (a, b, o) { var l = await RealStore.overtime(a, b, o); return emp ? l.filter(function (x) { return x.employee_id === p.id; }) : staff ? l.filter(function (x) { return inSvc(x.service_id); }) : l; };
-    st.auditEntries = async function (n) { return p.role === 'admin' ? RealStore.auditEntries(n) : []; };
-    st.notifications = async function () { return []; };
-    st.companies = async function () { return (await RealStore.companies()).filter(function (c) { return c.id === (S.realMe || S.me).company_id; }); };
-    return st;
+  /* Bac à sable : copie des données de l'entreprise (de 4 mois avant à 6 mois après aujourd'hui), ouverte avec le compte choisi
+     dans le moteur de démonstration (mêmes règles que la base). Toutes les actions marchent ; rien n'est envoyé ni gardé. */
+  async function sandboxSnapshot(R, uid) {
+    var t0 = C.addMonths(today().slice(0, 8) + '01', -4), t1 = C.addDays(C.addMonths(today().slice(0, 8) + '01', 7), -1);
+    function opt(f) { return f ? f().catch(function () { return []; }) : Promise.resolve([]); }
+    var r = await Promise.all([R.companies(), R.services(), R.templates(), R.profiles(), R.shifts(t0, t1), R.requests(), R.overtime(t0, t1), R.settings(),
+      opt(R.cpAccruals), opt(R.seniorityCredits), R.owedDays({}), opt(R.extras), R.extraContracts ? R.extraContracts({}).catch(function () { return []; }) : [], R.publishedMonths(),
+      opt(R.swaps), opt(R.feedback)]);
+    var vals = await Promise.all(r[1].filter(function (x) { return x.staffing; }).map(function (x) { return R.staffingValues(x.id, t0, t1).catch(function () { return []; }); }));
+    var co = r[7].id, settingsBy = {}; settingsBy[co] = r[7];
+    return { companies: r[0], services: r[1].map(function (x) { return Object.assign({ company_id: co }, x); }), templates: r[2], settingsBy: settingsBy,
+      profiles: r[3].map(function (x) { return Object.assign({ company_id: co, services: [] }, x); }),
+      shifts: r[4].map(function (x) { return Object.assign({}, x, { start_time: x.start_time && String(x.start_time).slice(0, 5), end_time: x.end_time && String(x.end_time).slice(0, 5) }); }),
+      requests: r[5], overtime: r[6], accruals: r[8], seniority: r[9], owed: r[10], extras: r[11], xcontracts: r[12], published: r[13], swaps: r[14], feedback: r[15],
+      staffing: [].concat.apply([], vals), notifications: [], audit: [], passwords: {}, extrasSeeded: true, mirrorSeeded: true, currentUser: uid, sandboxFrom: t0, sandboxTo: t1 };
   }
   async function enterPreview(id) {
     var real = S.realMe || S.me, p = (await RealStore.profiles()).find(function (x) { return x.id === id; });
     if (!p) { toast('Personne introuvable', true); return; }
-    S.realMe = real; S.me = Object.assign({}, p); Store = previewStore(p);
-    S.cache = {}; S.svc = myServices()[0]; S.menuOpen = false; S.notifOpen = false;
-    S.view = p.role === 'employee' ? 'moi' : 'planning';
+    if (!window.HPGDemo) { toast('Bac à sable indisponible : rechargez la page.', true); return; }
+    toast('Préparation de la copie de test…');
+    var snap; try { snap = await sandboxSnapshot(RealStore, p.id); } catch (e) { toast('Copie impossible : ' + e.message, true); return; }
+    S.realMe = real; Store = window.HPGDemo.create(snap, p.id); S.me = (await Store.init()) || Object.assign({}, p);
+    S.sandboxRange = [snap.sandboxFrom, snap.sandboxTo];
+    await reloadBase();
+    S.cache = {}; S.svc = myServices()[0]; S.menuOpen = false; S.notifOpen = false; S.extras = null;
+    S.view = homeView();
     render(); window.scrollTo(0, 0);
   }
-  function exitPreview() {
+  async function exitPreview() {
     if (!S.realMe) return;
-    S.me = S.realMe; S.realMe = null; Store = RealStore; S.cache = {}; S.svc = myServices()[0]; S.view = 'planning';
+    S.me = S.realMe; S.realMe = null; Store = RealStore; S.sandboxRange = null; S.extras = null;
+    try { await reloadBase(); } catch (e) {}
+    S.cache = {}; S.svc = myServices()[0]; S.view = homeView();
     render(); window.scrollTo(0, 0);
+  }
+  async function reloadBase() {
+    var base = await Promise.all([Store.services(), Store.templates(), Store.profiles(), Store.settings()]);
+    S.services = base[0]; S.templates = base[1]; S.profiles = base[2]; S.settings = base[3] || {};
+    applyDayTypes(); C.setRules(S.settings);
+    try { await refreshNotifs(); } catch (e) {}
   }
   function previewSelect() {
     if (!isRealDev()) return '';
     var ppl = (S.realMe ? S.previewPeople : S.profiles) || [];
     if (!S.realMe) S.previewPeople = ppl;
     var groups = [['admin', 'Administrateur'], ['manager', 'Manager'], ['assistant', 'Assistant'], ['employee', 'Salarié']];
-    return '<label class="co-switch view-as" title="Voir HPG comme un autre statut (lecture seule)"><span class="sr-only">Voir comme</span><select data-change="view-as">' +
+    return '<label class="co-switch view-as" title="Essayer HPG avec un autre compte, sur une copie des données (rien n\'est enregistré)"><span class="sr-only">Voir comme</span><select data-change="view-as">' +
       '<option value="">👁 Voir comme : moi (développeur)</option>' + groups.map(function (g) {
         var l = ppl.filter(function (x) { return x.role === g[0] && x.active !== false; }).sort(function (a, b) { return (a.full_name || '').localeCompare(b.full_name || ''); });
         return l.length ? '<optgroup label="' + g[1] + '">' + l.map(function (x) { return '<option value="' + x.id + '"' + (S.realMe && S.me.id === x.id ? ' selected' : '') + '>' + esc(g[1] + ' · ' + x.full_name) + '</option>'; }).join('') + '</optgroup>' : '';
       }).join('') + '</select></label>';
   }
   function previewBanner() {
-    return S.realMe ? '<div class="preview-bar" role="status">Aperçu : vous voyez HPG comme <b>' + esc(S.me.full_name) + '</b> (' + esc(ROLES[S.me.role] || S.me.role) + '). Lecture seule, rien n\'est enregistré. <button type="button" class="btn sm" data-act="preview-exit">Revenir à mon compte</button></div>' : '';
+    return S.realMe ? '<div class="preview-bar" role="status"><span>Bac à sable : vous êtes <b>' + esc(S.me.full_name) + '</b> (' + esc(ROLES[S.me.role] || S.me.role) + '). Tout fonctionne, mais sur une copie : rien n\'est enregistré, aucun e-mail ni notification n\'est envoyé, tout s\'efface en quittant.' +
+      (S.sandboxRange ? ' <span class="small">Copie du ' + S.sandboxRange[0].split('-').reverse().join('/') + ' au ' + S.sandboxRange[1].split('-').reverse().join('/') + '.</span>' : '') + '</span> <button type="button" class="btn sm" data-act="preview-exit">Quitter et revenir à mon compte</button></div>' : '';
   }
   /* droits de l'administrateur, réglés par le développeur seul (tous accordés par défaut) */
   function adminRight(r) { return isDev() || (role() === 'admin' && rights('admin')[r] !== false); }
@@ -141,7 +136,7 @@
   /* Options de l'entreprise (fiche Entreprise, réglées par le développeur). Une option absente de la fiche est activée :
      chaque nouvelle option ajoutée ici apparaît d'elle-même dans la liste, cochée, pour toutes les entreprises. */
   var FEATURES = [
-    ['Onglets', [['demandes', 'Demandes (congés, repos…)'], ['soldes', 'Mes soldes'], ['equipe_planning', 'Planning équipe (vue salarié)'], ['jours', 'Jours à rendre / récup.'], ['feries', 'Jours fériés'], ['heures', 'Heures supp'], ['presence', 'Fiches de présence'], ['pointage', 'Pointage'], ['extras', 'Extras (registre et contrats d\'extra)'], ['journal', 'Journal des modifications']]],
+    ['Onglets', [['demandes', 'Demandes (congés, repos…)'], ['soldes', 'Mes soldes'], ['equipe_planning', 'Planning équipe (vue salarié)'], ['jours', 'Jours à rendre / récup.'], ['feries', 'Jours fériés'], ['heures', 'Heures supp'], ['presence', 'Fiches de présence'], ['pointage', 'Pointage'], ['extras', 'Extras (registre et contrats d\'extra)'], ['journal', 'Journal des modifications'], ['tableau', 'Tableau de bord (encadrement)'], ['echanges', 'Échanges de shifts entre salariés'], ['retours', 'Bugs et améliorations (messages au développeur)']]],
     ['Planning', [['staffing', 'Lignes de calcul d\'effectif et couleurs de la ligne « Présents »'], ['extra', 'Ligne « Demande extra StaffHôtel »'], ['delivery', 'Ligne « Jour de livraison »'], ['rooms', 'Chambres (Housekeeping) : chambres par shift et « Chambres restant à faire »'], ['by_location', 'Totaux par localisation'], ['rest_month', 'Bouton « Poser les repos habituels »'], ['print', 'Impression du planning (PDF)']]],
     ['Salariés', [['pw_reset', 'Changement de mot de passe par la hiérarchie (Équipe)'], ['rest_auto', 'Repos habituels posés automatiquement à la création / modification'], ['push', 'Notifications sur téléphone']]]
   ];
@@ -167,6 +162,7 @@
     bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>',
     user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="8.5" r="3.7"/><path d="M4.5 20c.9-3.6 3.8-5.6 7.5-5.6s6.6 2 7.5 5.6"/></svg>',
     doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14.5 3.5V8H19M9 12h7M9 15.5h7M9 19h4"/></svg>',
+    home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/></svg>',
     sheet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M4 9h16M4 14.5h16M10 3.5v17"/></svg>',
     logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14 4.5h3.5A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M10 8l-4 4 4 4M6 12h9"/></svg>',
     pdf: '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></svg>',
@@ -250,6 +246,7 @@
   function tabsFor() {
     var t = [];
     if (isBoss()) {
+      if (feat('tableau')) t.push(['tableau', 'Tableau de bord', ICON.home]);
       t.push(['planning', 'Planning', ICON.cal]);
       if (isEmployeeToo()) t.push(['moi', 'Mon planning', ICON.user]);
       if ((hasRight('requests') || isAdmin()) && feat('demandes')) t.push(['demandes', 'Demandes', ICON.inbox]);
@@ -259,6 +256,7 @@
       if (hasRight('overtime') && feat('heures')) t.push(['heures', 'Heures supp', ICON.clock]);
       if (hasRight('presence')) { if (feat('presence')) t.push(['presence', 'Fiches de présence', ICON.sheet]); if (feat('pointage')) t.push(['pointage', 'Pointage', ICON.sheet]); }
       if (hasRight('extras') && feat('extras')) t.push(['extras', 'Extras', ICON.doc]);
+      if (!isAdmin() && hasRight('journal') && feat('journal')) t.push(['journal', 'Journal', ICON.sheet]);
       if (isAdmin()) {
         if (adminRight('settings')) t.push(['parametres', 'Paramètres', ICON.gear]);
         if (adminRight('journal') && feat('journal')) t.push(['journal', 'Journal', ICON.sheet]);
@@ -282,7 +280,7 @@
     var curTab = tabs.find(function (t) { return t[0] === S.view; });
     return '<header class="top"><div class="top-in">' +
       (tabs.length ? '<button class="menu-btn" data-act="menu" aria-label="Menu" aria-expanded="' + !!S.menuOpen + '" aria-controls="side-menu">' + ICON.menu + '<span>' + esc(curTab ? (curTab[0] === 'presence' ? 'Présences' : curTab[1]) : 'Menu') + '</span>' + (pendingCount ? '<span class="badge">' + pendingCount + '</span>' : '') + '</button>' : '') +
-      '<div class="brand"><img class="brand-logo" src="icons/logo-80.png" width="36" height="36" alt="HPG"><small>' + esc(coName()) + (isAdmin() ? '' : ' · ' + (S.me.services || []).map(svcName).join(' · ')) + '</small></div>' +
+      '<div class="brand"><button type="button" class="brand-home" data-act="go" data-v="' + homeView() + '" title="Accueil" aria-label="Accueil"><img class="brand-logo" src="icons/logo-80.png" width="36" height="36" alt="HPG"></button><small>' + esc(coName()) + (isAdmin() ? '' : ' · ' + (S.me.services || []).map(svcName).join(' · ')) + '</small></div>' +
       previewSelect() +
       (isDev() && (S.companies || []).length ? '<label class="co-switch" title="Entreprise ouverte : tout HPG suit (planning, équipe, paramètres, exports)"><span class="sr-only">Entreprise</span><select data-change="co-switch">' + S.companies.map(function (c) { return '<option value="' + c.id + '"' + (c.id === S.me.company_id ? ' selected' : '') + '>' + esc(c.name) + (c.active === false ? ' (inactive)' : '') + '</option>'; }).join('') + '</select></label>' : '') +
       '<div class="spacer"></div>' +
@@ -328,9 +326,9 @@
     if (S.me.role === 'pending') { app.innerHTML = shell(pendingView()); return; }
     var allowed = tabsFor().map(function (t) { return t[0]; });
     var views = isBoss()
-      ? { planning: vTeamPlanning, moi: vMyPlanning, demandes: vValidate, 'mes-demandes': vMyRequests, equipe: vTeam, jours: vOwedAll, feries: vFeries, heures: vOvertime, presence: vPresence, pointage: vPointage, parametres: vSettings, journal: vJournal, entreprises: vCompanies, extras: vExtras }
+      ? { planning: vTeamPlanning, moi: vMyPlanning, demandes: vValidate, 'mes-demandes': vMyRequests, equipe: vTeam, jours: vOwedAll, feries: vFeries, heures: vOvertime, presence: vPresence, pointage: vPointage, parametres: vSettings, journal: vJournal, entreprises: vCompanies, extras: vExtras, tableau: vDashboard }
       : { planning: vMyPlanning, 'equipe-planning': vTeamPlanning, 'mes-demandes': vMyRequests };
-    if (allowed.indexOf(S.view) < 0 || !views[S.view]) S.view = 'planning';
+    if (allowed.indexOf(S.view) < 0 || !views[S.view]) S.view = allowed.indexOf(homeView()) >= 0 ? homeView() : 'planning';
     try {
       var html = await views[S.view](), pc = await pendingRequestsCount();
       if (seq !== renderSeq) return;
@@ -783,19 +781,23 @@
     var me = S.me, m = curMonth(), days = monthDays(m), first = days[0], last = days[days.length - 1], t = today();
     var res = await Promise.all([Store.shifts(first, last, { employeeId: me.id }), Store.publishedMonths()]);
     var shifts = res[0], published = res[1].some(function (p) { return p.month === first && (me.services || []).indexOf(p.service_id) >= 0; });
+    S.cache.myShifts = shifts;
+    var swOk = swapsOn(), tomorrow = C.addDays(t, 1);
+    function swappable(s) { return swOk && s.day >= tomorrow && (s.kind === 'work' || s.kind === 'repos') && !s.request_id && !s.jour_sup && !s.jour_rendu && res[1].some(function (p) { return p.service_id === s.service_id && p.month === s.day.slice(0, 8) + '01'; }); }
+    var swHtml = await mySwapsBlock();
     var worked = shifts.reduce(function (a, s) { return a + C.shiftDetail(s).worked; }, 0);
     var start = C.weekStart(first), end = C.addDays(C.weekStart(last), 6), cells = '';
     for (var d = start; d <= end; d = C.addDays(d, 1)) {
       var inM = d >= first && d <= last, ds = shifts.filter(function (s) { return s.day === d; }), hol = C.holidayName(d);
       cells += '<div class="cal-day' + (inM ? '' : ' out') + (d === t ? ' today' : '') + '"><div class="cal-n">' + +d.slice(8, 10) + (hol && inM ? ' <span class="hol">' + esc(hol) + '</span>' : '') + '</div>' +
-        (inM ? ds.map(function (s) { return chip(s, 'tabindex="-1"'); }).join('') : '') + '</div>';
+        (inM ? ds.map(function (s) { return chip(s, swappable(s) ? 'data-act="sw-new" data-id="' + s.id + '" title="Proposer un échange"' : 'tabindex="-1"'); }).join('') : '') + '</div>';
     }
     return '<div class="page-head"><div><div class="eyebrow">' + esc((me.services || []).map(svcName).join(' · ')) + '</div><h2>Mon planning</h2></div><div class="row">' + monthNav() + '</div></div>' +
       (!published ? '<div class="banner info">Le planning de ce mois n\'est pas encore publié. Vous recevrez une notification dès sa publication.</div>' : '') +
       '<div class="stats"><div class="stat"><div class="v">' + fmt(worked) + '</div><div class="l">heures prévues ce mois</div></div>' +
       '<div class="stat"><div class="v">' + shifts.filter(function (s) { return s.kind === 'work'; }).length + '</div><div class="l">jours travaillés</div></div></div>' +
       '<div class="cal"><div class="cal-h">' + ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map(function (x) { return '<div>' + x + '</div>'; }).join('') + '</div><div class="cal-g">' + cells + '</div></div>' +
-      '<p class="hint">Seuls les mois publiés par votre manager apparaissent, avec vos congés validés.</p>' + legend();
+      '<p class="hint">Seuls les mois publiés par votre manager apparaissent, avec vos congés validés.</p>' + legend() + swHtml;
   }
   async function vTeamPlanning() { return vTeamMonth(); }
   /* Effectif par shift et par jour (pied du tableau du planning) */
@@ -1842,10 +1844,11 @@
   function sw(attr, label, on, hint) { return '<label class="sw-row"><input type="checkbox" ' + attr + (on ? ' checked' : '') + '><span class="sw"></span><span>' + label + (hint ? '<br><span class="hint">' + hint + '</span>' : '') + '</span></label>'; }
   var RIGHT_LABELS = { planning: 'Créer et modifier le planning', publish: 'Publier / dépublier la semaine', copy_week: 'Copier la semaine précédente', requests: 'Saisir et valider les demandes des salariés',
     owed: 'Jours fériés, à récupérer et à rendre', presence: 'Fiches de présence et pointage', overtime: 'Heures supplémentaires', team: 'Créer et modifier les fiches de l\'équipe',
-    extras: 'Extras : registre et contrats d\'extra', extras_sign: 'Extras : marquer un contrat « signé »' };
+    extras: 'Extras : registre et contrats d\'extra', extras_sign: 'Extras : marquer un contrat « signé »', journal: 'Journal des modifications (de ses services)' };
   var ADMIN_RIGHTS = Object.assign({}, { settings: 'Accéder aux Paramètres et les modifier', journal: 'Consulter le journal des modifications', company: 'Modifier la fiche de l\'entreprise', passwords: 'Changer les mots de passe de l\'équipe' }, null);
   var EMP_RIGHTS = { team_planning: 'Voir le planning de toute l\'équipe (mois publiés)', balances: 'Consulter ses soldes et ses demandes (CP, fériés, ancienneté, heures supp)',
-    requests: 'Faire ses demandes de congés dans HPG (validées ensuite par le manager, puis la direction pour les CP)' };
+    requests: 'Faire ses demandes de congés dans HPG (validées ensuite par le manager, puis la direction pour les CP)',
+    swaps: 'Proposer des échanges de shifts à un collègue du même service (le collègue accepte, puis le manager ou l\'assistant valide)' };
   var ST_DEFAULTS = {
     work: { default_contract_hours: 39, break_threshold_min: 360, break_min: 30, min_rest_hours: 11 }, req: { publish_weeks_ahead: 2 },
     cp: { cp_monthly_days: 2.5, cp_credit_day: 1, cp_credit_month: 5, cp_cap: 30, cp_contracts: ['cdi', 'cdd', 'alternant'] }, ot: { contingent_hours: 360, ot_day_minutes: 450 },
@@ -2128,22 +2131,26 @@
 
   async function vJournal() {
     var list = await Store.auditEntries(300);
-    var TN = { shifts: 'Planning', requests: 'Demande', profiles: 'Fiche salarié', overtime_entries: 'Heures supp', owed_days: 'Jours dus', settings: 'Paramètres', services: 'Service', shift_templates: 'Modèle de shift' };
+    var TN = { shifts: 'Planning', requests: 'Demande', profiles: 'Fiche salarié', overtime_entries: 'Heures supp', owed_days: 'Jours dus', settings: 'Paramètres', services: 'Service', shift_templates: 'Modèle de shift',
+      shift_swaps: 'Échange de shifts', extras: 'Fiche extra', extra_contracts: 'Contrat d\'extra', companies: 'Entreprise' };
     var AN = { INSERT: 'ajout', UPDATE: 'modification', DELETE: 'suppression', UPSERT: 'saisie' };
     function what(e) {
       var r = e.new_data || e.old_data || {};
       if (e.table_name === 'shifts') return (r.employee_id ? name(r.employee_id) + ' · ' : '') + (r.day ? r.day.split('-').reverse().join('/') + ' · ' : '') + (r.kind === 'work' ? (r.label || '') + ' ' + hhmm(r.start_time) + '–' + hhmm(r.end_time) : KLABEL[r.kind] || r.kind || '');
       if (e.table_name === 'requests') return (r.employee_id ? name(r.employee_id) + ' · ' : '') + (TYPES[r.type] || '') + ' · ' + (STATUS[r.status] || [''])[0];
       if (e.table_name === 'profiles') return r.full_name || '';
+      if (e.table_name === 'shift_swaps') return name(r.requester_id) + ' ⇄ ' + name(r.target_id) + ' · ' + (r.requester_day || '').split('-').reverse().join('/') + ' ↔ ' + (r.target_day || '').split('-').reverse().join('/') + ' · ' + ((SWST[r.status] || [''])[0]);
+      if (e.table_name === 'extra_contracts') return (r.extra_name || '') + ' · ' + (r.day || '').split('-').reverse().join('/') + ' · ' + ((XST[r.status] || [''])[0]);
+      if (e.table_name === 'extras') return (r.last_name || '') + ' ' + (r.first_name || '');
       if (e.table_name === 'overtime_entries') return (r.employee_id ? name(r.employee_id) + ' · ' : '') + (r.minutes ? '+' + fmt(r.minutes) : '');
       if (e.table_name === 'owed_days') return (r.employee_id ? name(r.employee_id) + ' · ' : '') + ({ ferie: 'jour férié', recup: 'jour à récupérer', rendre: 'jour à rendre' }[r.type] || '');
       if (e.table_name === 'settings' && e.old_data && e.new_data) return Object.keys(e.new_data).filter(function (k) { return k !== 'updated_at' && k !== 'updated_by' && JSON.stringify(e.new_data[k]) !== JSON.stringify(e.old_data[k]); }).join(', ');
       return r.name || '';
     }
-    return '<div class="page-head"><div><div class="eyebrow">Réservé à l\'administrateur</div><h2>Journal des modifications</h2></div></div>' +
-      '<div class="table-wrap"><table><thead><tr><th>Quand</th><th>Qui</th><th>Quoi</th><th>Action</th><th>Détail</th></tr></thead><tbody>' +
-      (list.length ? list.map(function (e) { return '<tr><td class="small">' + stamp(new Date(e.at)) + '</td><td>' + esc(e.actor_name || 'Système') + '</td><td>' + esc(TN[e.table_name] || e.table_name) + '</td><td>' + esc(AN[e.action] || e.action) + '</td><td class="small">' + esc(what(e)) + '</td></tr>'; }).join('') : '<tr><td colspan="5" class="empty">Aucune modification enregistrée.</td></tr>') +
-      '</tbody></table></div>';
+    return '<div class="page-head"><div><div class="eyebrow">' + (isAdmin() ? 'Tout l\'établissement' : esc(rightServices('journal').map(svcName).join(' · '))) + '</div><h2>Journal des modifications</h2></div></div>' +
+      (list.length ? '<div class="table-wrap stackwrap"><table class="stack"><thead><tr><th>Quoi</th><th>Quand</th><th>Qui</th><th>Action</th><th>Détail</th></tr></thead><tbody>' +
+        list.map(function (e) { return '<tr><td class="st-title"><b>' + esc(TN[e.table_name] || e.table_name) + '</b></td><td data-l="Quand" class="small nowrap">' + stamp(new Date(e.at)) + '</td><td data-l="Qui">' + esc(e.actor_name || 'Système') + '</td><td data-l="Action">' + esc(AN[e.action] || e.action) + '</td><td data-l="Détail" class="small">' + esc(what(e)) + '</td></tr>'; }).join('') +
+        '</tbody></table></div>' : '<div class="panel empty">Aucune modification enregistrée.</div>');
   }
 
   /* ---------- Impression du planning mensuel : tout le mois sur UNE seule page A4 paysage ---------- */
@@ -2838,6 +2845,148 @@
     }
   };
 
+  /* ---------- Page d'accueil : tableau de bord (encadrement) ou planning (salarié) ---------- */
+  function homeView() { return isBoss() && feat('tableau') ? 'tableau' : 'planning'; }
+
+  /* ---------- ÉCHANGES DE SHIFTS ---------- */
+  var SWST = { pending_peer: ['En attente du collègue', 'warn'], pending_manager: ['En attente du manager', 'warn'], approved: ['Validé', 'ok'], refused: ['Refusé', 'bad'], cancelled: ['Annulé', 'neutral'] };
+  function swapsOn() { return feat('echanges') && role() === 'employee' && empRight('swaps'); }
+  function dmy(d) { return d ? d.split('-').reverse().join('/') : ''; }
+  function swapItem(w, mode) {
+    var st = SWST[w.status], a = esc(name(w.requester_id)), b = esc(name(w.target_id)), acts = '';
+    if (mode === 'peer' && w.status === 'pending_peer') acts = '<button class="btn sm" data-act="sw-no" data-id="' + w.id + '">Refuser</button><button class="btn sm primary" data-act="sw-yes" data-id="' + w.id + '">Accepter</button>';
+    if (mode === 'mine' && /^pending/.test(w.status)) acts = '<button class="btn sm ghost danger" data-act="sw-cancel" data-id="' + w.id + '">Annuler</button>';
+    if (mode === 'boss' && w.status === 'pending_manager' && can('planning', w.service_id)) acts = '<button class="btn sm" data-act="sw-refuse" data-id="' + w.id + '">Refuser</button><button class="btn sm primary" data-act="sw-approve" data-id="' + w.id + '">Valider l\'échange</button>';
+    return '<div class="item"><div><div class="title">' + a + ' ⇄ ' + b + '</div>' +
+      '<div class="sub">' + a + ' donne : <b>' + esc(w.requester_label || '') + '</b> du ' + esc(dayLong(w.requester_day)) + '</div>' +
+      '<div class="sub">' + b + ' donne : <b>' + esc(w.target_label || '') + '</b> du ' + esc(dayLong(w.target_day)) + '</div>' +
+      (w.note ? '<div class="sub">« ' + esc(w.note) + ' »</div>' : '') + (w.refusal_reason ? '<div class="sub" style="color:var(--bad)">' + esc(w.refusal_reason) + '</div>' : '') +
+      (mode === 'boss' ? '<div class="sub muted">' + esc(svcName(w.service_id)) + ' · demandé le ' + stamp(new Date(w.created_at)) + '</div>' : '') +
+      '<div class="steps"><span class="on">' + a + '</span><span>→</span><span class="' + (w.peer_at && w.status !== 'refused' ? 'on' : w.status === 'pending_peer' ? 'cur' : '') + '">' + b + '</span><span>→</span><span class="' + (w.status === 'approved' ? 'on' : w.status === 'pending_manager' ? 'cur' : '') + '">Manager</span></div></div>' +
+      '<div class="acts"><span class="pill ' + st[1] + '">' + st[0] + '</span>' + acts + '</div></div>';
+  }
+  /* bloc « Échanges de shifts » de Mon planning (salarié) */
+  async function mySwapsBlock() {
+    if (!swapsOn()) return '';
+    var list = await Store.swaps().catch(function () { return []; }), me = S.me.id;
+    var inc = list.filter(function (w) { return w.target_id === me && w.status === 'pending_peer'; });
+    var mine = list.filter(function (w) { return w.requester_id === me || (w.target_id === me && w.status !== 'pending_peer'); }).slice(0, 8);
+    return '<section class="list" aria-label="Échanges de shifts"><h3>Échanges de shifts</h3>' +
+      '<p class="hint">Touchez un de vos jours à venir dans le calendrier pour proposer un échange à un collègue du service. Il doit accepter, puis votre manager valide.</p>' +
+      (inc.length ? inc.map(function (w) { return swapItem(w, 'peer'); }).join('') : '') +
+      (mine.length ? mine.map(function (w) { return swapItem(w, w.requester_id === me ? 'mine' : 'x'); }).join('') : (inc.length ? '' : '<div class="panel empty">Aucun échange en cours.</div>')) + '</section>';
+  }
+  async function openSwap(shiftId) {
+    var sh = (S.cache.myShifts || []).find(function (x) { return x.id === shiftId; });
+    if (!sh) return;
+    var cands = [];
+    try { cands = await Store.swapCandidates(shiftId); } catch (e) { toast(e.message, true); return; }
+    var mineLbl = sh.kind === 'work' ? (sh.label || 'Travail') + ' ' + hhmm(sh.start_time) + '–' + hhmm(sh.end_time) : 'Repos';
+    dlg.innerHTML = '<form id="swf" class="form" novalidate><div class="dlg-h"><div><div class="eyebrow">Échange de shift</div><h3>' + esc(dayLong(sh.day)) + ' · ' + esc(mineLbl) + '</h3></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b">' +
+      (cands.length ? '<label class="f">Contre le jour d\'un collègue<select id="sw-t">' + cands.map(function (c) {
+        return '<option value="' + c.shift_id + '">' + esc(dayShort(c.day) + ' · ' + c.full_name + ' · ' + (c.kind === 'work' ? (c.label || 'Travail') + ' ' + hhmm(c.start_time) + '–' + hhmm(c.end_time) : 'Repos')) + '</option>';
+      }).join('') + '</select></label><label class="f">Message pour votre collègue (facultatif)<input type="text" id="sw-n" maxlength="300"></label>' +
+        '<p class="small muted" style="margin:0">Choisir le <b>repos</b> d\'un collègue le même jour = il travaille à votre place et vous êtes en repos. Votre collègue doit accepter, puis votre manager valide ; le planning change à la validation.</p>'
+        : '<div class="banner info">Aucun jour de collègue disponible à ±21 jours (planning publié, à partir de demain).</div>') +
+      '<div class="err" id="sw-err" role="alert"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button>' + (cands.length ? '<button class="btn primary" type="submit">Proposer l\'échange</button>' : '') + '</div></div></form>';
+    var f = dlg.querySelector('#swf');
+    f.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) dlg.close(); });
+    f.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      try { await Store.createSwap(sh.id, f.querySelector('#sw-t').value, f.querySelector('#sw-n').value.trim()); } catch (ex) { f.querySelector('#sw-err').textContent = ex.message; return; }
+      dlg.close(); toast('Échange proposé : votre collègue est prévenu'); render();
+    });
+    dlg.showModal();
+  }
+  function openSwapRefuse(id) {
+    dlg.innerHTML = '<form id="swr" novalidate><div class="dlg-h"><h3>Refuser l\'échange</h3><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div>' +
+      '<div class="dlg-b"><label class="f">Motif communiqué aux deux salariés (obligatoire)<textarea id="swr-r" maxlength="200"></textarea></label><div class="err" id="swr-err"></div></div>' +
+      '<div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary" type="submit">Refuser</button></div></div></form>';
+    var f = dlg.querySelector('#swr');
+    f.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) dlg.close(); });
+    f.addEventListener('submit', async function (e) {
+      e.preventDefault(); var r = f.querySelector('#swr-r').value.trim();
+      if (!r) { f.querySelector('#swr-err').textContent = 'Indiquez le motif du refus.'; return; }
+      try { await Store.decideSwap(id, false, r); } catch (ex) { f.querySelector('#swr-err').textContent = ex.message; return; }
+      dlg.close(); toast('Échange refusé'); render();
+    });
+    dlg.showModal();
+  }
+
+  /* ---------- TABLEAU DE BORD ---------- */
+  var FIXED = ['cdi', 'cdd', 'alternant'];
+  var FBK = { bug: ['Bug', 'bad'], idea: ['Amélioration', 'ok'], question: ['Question', 'neutral'] }, FBS = { open: ['Ouvert', 'warn'], in_progress: ['En cours', 'warn'], done: ['Traité', 'ok'], wontfix: ['Non retenu', 'neutral'] };
+  function mixTable(month, year, svcs) {
+    function agg(list) { var o = {}; list.filter(function (r) { return svcs.indexOf(r.service_id) >= 0; }).forEach(function (r) { var x = o[r.contract_type] = o[r.contract_type] || { people: 0, shifts: 0, minutes: 0 }; x.people += +r.people; x.shifts += +r.shifts; x.minutes += +r.minutes; }); return o; }
+    var m = agg(month), y = agg(year), keys = {};
+    Object.keys(m).concat(Object.keys(y)).forEach(function (k) { keys[k] = 1; });
+    var headcount = {}; S.profiles.forEach(function (p) { if (p.active && ['employee', 'assistant', 'manager'].indexOf(p.role) >= 0 && (p.services || []).some(function (s) { return svcs.indexOf(s) >= 0; })) { headcount[p.contract_type] = (headcount[p.contract_type] || 0) + 1; keys[p.contract_type] = 1; } });
+    var tm = 0, ty = 0; Object.keys(m).forEach(function (k) { tm += m[k].minutes; }); Object.keys(y).forEach(function (k) { ty += y[k].minutes; });
+    function pct(v, t) { return t ? Math.round(v / t * 1000) / 10 : 0; }
+    var fm = 0, fy = 0; FIXED.forEach(function (k) { fm += (m[k] || {}).minutes || 0; fy += (y[k] || {}).minutes || 0; });
+    var order = contractTypes().map(function (x) { return x[0]; });
+    var rows = Object.keys(keys).sort(function (a, b) { return (order.indexOf(a) + 99) % 99 - (order.indexOf(b) + 99) % 99; }).map(function (k) {
+      var a = m[k] || { people: 0, shifts: 0, minutes: 0 }, b = y[k] || { people: 0, shifts: 0, minutes: 0 };
+      return '<tr><td class="st-title"><b>' + esc(CONTRATS[k]) + '</b>' + (FIXED.indexOf(k) >= 0 ? ' <span class="pill ok">fixe</span>' : '') + '</td><td data-l="Effectif" class="n">' + (headcount[k] || 0) + '</td>' +
+        '<td data-l="Ce mois" class="n">' + fmt(a.minutes) + ' <span class="muted small">· ' + a.shifts + ' j · ' + num(pct(a.minutes, tm)) + ' %</span></td>' +
+        '<td data-l="Année" class="n">' + fmt(b.minutes) + ' <span class="muted small">· ' + b.shifts + ' j · ' + num(pct(b.minutes, ty)) + ' %</span></td></tr>';
+    }).join('');
+    return '<div class="stats"><div class="stat"><div class="v">' + num(pct(fm, tm)) + ' %</div><div class="l">des heures faites par du personnel fixe (CDI, CDD, alternants) ce mois</div></div>' +
+      '<div class="stat"><div class="v">' + num(pct(fy, ty)) + ' %</div><div class="l">sur l\'année ' + today().slice(0, 4) + ' (planning jusqu\'à la fin du mois)</div></div></div>' +
+      (rows ? '<div class="table-wrap stackwrap"><table class="stack"><thead><tr><th>Contrat</th><th class="n">Effectif</th><th class="n">Heures ce mois</th><th class="n">Heures sur l\'année</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="empty">Aucun shift sur la période.</div>');
+  }
+  function feedbackBlock(list) {
+    var roots = list.filter(function (f) { return !f.parent_id; }), dev = isDev();
+    var form = '<form class="form fb-form" data-submit="feedback" novalidate><div class="two"><label class="f">Type<select id="fb-kind"><option value="bug">Bug à corriger</option><option value="idea">Amélioration</option><option value="question">Question</option></select></label><span></span></div>' +
+      '<label class="f">Message<textarea id="fb-body" maxlength="2000" rows="3" placeholder="Ce qui ne marche pas (où, quand, ce que vous attendiez) ou ce que vous aimeriez avoir"></textarea></label>' +
+      '<div class="row"><button class="btn primary" type="submit">Envoyer au développeur</button></div></form>';
+    var items = roots.slice(0, 30).map(function (f) {
+      var rep = list.filter(function (x) { return x.parent_id === f.id; }).sort(function (a, b) { return String(a.created_at).localeCompare(String(b.created_at)); });
+      return '<div class="fb-item"><div class="fb-h"><span><span class="pill ' + FBK[f.kind][1] + '">' + FBK[f.kind][0] + '</span><b>' + esc(name(f.author_id) || '—') + '</b><span class="small muted">' + stamp(new Date(f.created_at)) + (dev && f.company_id ? ' · ' + esc(((S.companies || []).find(function (c) { return c.id === f.company_id; }) || {}).name || '') : '') + '</span></span>' +
+        (dev ? '<select class="fb-st" data-change="fb-status" data-id="' + f.id + '">' + Object.keys(FBS).map(function (k) { return '<option value="' + k + '"' + (f.status === k ? ' selected' : '') + '>' + FBS[k][0] + '</option>'; }).join('') + '</select>' : '<span class="pill ' + FBS[f.status][1] + '">' + FBS[f.status][0] + '</span>') + '</div>' +
+        '<div class="fb-body">' + esc(f.body).replace(/\n/g, '<br>') + '</div>' +
+        rep.map(function (r) { var p = S.profiles.find(function (x) { return x.id === r.author_id; }); return '<div class="fb-reply"><b>' + esc(p && p.role === 'developer' ? 'Développeur' : name(r.author_id) || '—') + '</b> <span class="small muted">' + stamp(new Date(r.created_at)) + '</span><div>' + esc(r.body).replace(/\n/g, '<br>') + '</div></div>'; }).join('') +
+        '<form class="row fb-rep" data-submit="feedback-reply" data-id="' + f.id + '" novalidate><input type="text" maxlength="2000" placeholder="Répondre…" aria-label="Répondre"><button class="btn sm" type="submit">Envoyer</button></form></div>';
+    }).join('');
+    return '<section class="panel" id="retours"><h3 style="margin-top:0">Bugs et améliorations</h3><p class="hint">Vos messages arrivent directement au développeur de HPG, qui répond ici. Tout l\'encadrement de l\'établissement voit les échanges.</p>' + form + (items || '<div class="empty">Aucun message pour l\'instant.</div>') + '</section>';
+  }
+  async function vDashboard() {
+    var svcs = isAdmin() ? S.services.filter(function (x) { return !x.archived; }).map(function (x) { return x.id; }) : myServices();
+    if (S.dbSvc && svcs.indexOf(S.dbSvc) < 0) S.dbSvc = null;
+    var scope = S.dbSvc ? [S.dbSvc] : svcs, t = today(), m0 = t.slice(0, 8) + '01', m1 = C.addDays(C.addMonths(m0, 1), -1), y0 = t.slice(0, 4) + '-01-01';
+    var res = await Promise.all([Store.requests().catch(function () { return []; }), feat('echanges') ? Store.swaps().catch(function () { return []; }) : [],
+      Store.staffMix ? Store.staffMix(m0, m1).catch(function () { return []; }) : [], Store.staffMix ? Store.staffMix(y0, m1).catch(function () { return []; }) : [],
+      feat('retours') && Store.feedback ? Store.feedback().catch(function () { return []; }) : [],
+      feat('extras') && hasRight('extras') ? Store.extraContracts({}).catch(function () { return []; }) : []]);
+    var reqs = res[0].filter(function (r) { return scope.indexOf(r.service_id) >= 0; }), toDecide = reqs.filter(canDecide);
+    var fromEmp = reqs.filter(function (r) { return r.created_by && r.created_by === r.employee_id; });
+    var sw = res[1].filter(function (w) { return scope.indexOf(w.service_id) >= 0; }), swBoss = sw.filter(function (w) { return w.status === 'pending_manager' && can('planning', w.service_id); }), swPeer = sw.filter(function (w) { return w.status === 'pending_peer'; });
+    var xToSign = res[5].filter(function (c) { return c.status === 'to_sign' && scope.indexOf(c.service_id) >= 0; });
+    function card(n, label, view, warn) { return '<button type="button" class="stat stat-btn" data-act="go" data-v="' + view + '"><div class="v' + (warn && n ? ' over' : '') + '">' + n + '</div><div class="l">' + label + '</div></button>'; }
+    var sel = svcs.length > 1 ? '<label class="f" style="min-width:180px">Service<select data-change="db-svc"><option value="">' + (isAdmin() ? 'Tous les services' : 'Tous mes services') + '</option>' + svcs.map(function (s) { return '<option value="' + s + '"' + (S.dbSvc === s ? ' selected' : '') + '>' + esc(svcName(s)) + '</option>'; }).join('') + '</select></label>' : '';
+    return '<div class="page-head"><div><div class="eyebrow">' + esc(S.dbSvc ? svcName(S.dbSvc) : (isAdmin() ? coName() : scope.map(svcName).join(' · '))) + '</div><h2>Tableau de bord</h2></div><div class="row">' + sel + '</div></div>' +
+      '<div class="stats">' + (feat('demandes') && (hasRight('requests') || isAdmin()) ? card(toDecide.length, 'demande(s) de congé à valider', 'demandes', true) + card(fromEmp.filter(function (r) { return /^pending/.test(r.status); }).length, 'demande(s) envoyée(s) par les salariés en attente', 'demandes') : '') +
+      (feat('echanges') ? card(swBoss.length, 'échange(s) de shifts à valider', 'tableau', true) + card(swPeer.length, 'échange(s) en attente du collègue', 'tableau') : '') +
+      (feat('extras') && hasRight('extras') ? card(xToSign.length, 'contrat(s) d\'extra à signer', 'extras', true) : '') + '</div>' +
+      (swBoss.length ? '<section class="list"><h3>Échanges de shifts à valider</h3>' + swBoss.map(function (w) { return swapItem(w, 'boss'); }).join('') + '</section>' : '') +
+      (toDecide.length ? '<section class="list"><h3>Demandes à valider <button type="button" class="linkish small" data-act="go" data-v="demandes">tout voir</button></h3>' + toDecide.slice(0, 5).map(function (r) { return requestItem(r, true); }).join('') + '</section>' : '') +
+      (fromEmp.filter(function (r) { return toDecide.indexOf(r) < 0; }).length ? '<section class="list"><h3>Dernières demandes reçues des salariés <span class="muted small">(hors « à valider »)</span></h3>' + fromEmp.filter(function (r) { return toDecide.indexOf(r) < 0; }).slice(0, 6).map(function (r) { return requestItem(r, true); }).join('') + '</section>' : '') +
+      (swPeer.length || sw.some(function (w) { return !/^pending/.test(w.status); }) ? '<section class="list"><h3>Échanges récents</h3>' + sw.filter(function (w) { return w.status !== 'pending_manager'; }).slice(0, 6).map(function (w) { return swapItem(w, 'x'); }).join('') + '</section>' : '') +
+      '<section class="panel"><h3 style="margin-top:0">Personnel par type de contrat</h3><p class="hint">Heures prévues au planning (pauses déduites) et jours travaillés, par type de contrat de la fiche salarié. Personnel fixe = CDI, CDD et alternants. Effectif = salariés actifs rattachés au(x) service(s).</p>' + mixTable(res[2], res[3], scope) + '</section>' +
+      (feat('retours') ? feedbackBlock(res[4]) : '');
+  }
+  var D_ACTIONS = {
+    'sw-new': function (b) { openSwap(b.dataset.id); },
+    'sw-yes': async function (b) { try { await attempt(function () { return Store.respondSwap(b.dataset.id, true); }, 'Échange accepté : votre manager doit le valider'); render(); } catch (e) {} },
+    'sw-no': async function (b) { try { await attempt(function () { return Store.respondSwap(b.dataset.id, false); }, 'Échange refusé'); render(); } catch (e) {} },
+    'sw-cancel': async function (b) {
+      if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmer'; return; }
+      try { await attempt(function () { return Store.cancelSwap(b.dataset.id); }, 'Échange annulé'); render(); } catch (e) {}
+    },
+    'sw-approve': async function (b) { try { await attempt(function () { return Store.decideSwap(b.dataset.id, true); }, 'Échange validé : planning mis à jour'); S.cache = {}; render(); } catch (e) {} },
+    'sw-refuse': function (b) { openSwapRefuse(b.dataset.id); }
+  };
+
   var A = {
     go: function (b) { if (b.dataset.v === 'parametres' && b.closest('.palette')) S.tplSvc = null; S.view = b.dataset.v; S.notifOpen = false; S.menuOpen = false; render(); window.scrollTo(0, 0); },
     'co-new': function () { openCompany(null); },
@@ -2968,7 +3117,7 @@
       try { S.settings = await attempt(function () { return Store.saveSettings(JSON.parse(JSON.stringify(patch))); }, 'Valeurs par défaut rétablies'); applyDayTypes(); C.setRules(S.settings); render(); } catch (e) {}
     }
   };
-  Object.assign(A, X_ACTIONS);
+  Object.assign(A, X_ACTIONS, D_ACTIONS);
   function delegate(e) {
     var b = e.target.closest('[data-act]');
     if (!b) { if (e.currentTarget === app && S.notifOpen && !e.target.closest('.notif-wrap')) { S.notifOpen = false; render(); } return; }
@@ -3031,6 +3180,8 @@
     if (a === 'tpl-svc') { S.tplSvc = e.target.value; render(); }
     if (a === 'x-svc') { S.xSvc = e.target.value === 'all' ? 'all' : +e.target.value; render(); }
     if (a === 'x-arch') { S.xArch = e.target.checked; render(); }
+    if (a === 'db-svc') { S.dbSvc = e.target.value ? +e.target.value : null; render(); }
+    if (a === 'fb-status') { var fid = e.target.dataset.id; Store.setFeedbackStatus(isNaN(+fid) ? fid : +fid, e.target.value).then(function () { toast('Statut mis à jour'); }).catch(function (err) { toast(err.message, true); }); }
     if (a === 'livr') {
       var cb = e.target, dl = cb.dataset.day;
       Store.saveStaffingValue(S.svc, dl, '_livr', cb.checked ? 1 : null).then(function () {
@@ -3059,6 +3210,13 @@
     var kind = e.target.dataset.submit, f = e.target;
     if (!kind) return;
     e.preventDefault();
+    if (kind === 'feedback' || kind === 'feedback-reply') {
+      var body = kind === 'feedback' ? f.querySelector('#fb-body').value.trim() : f.querySelector('input').value.trim();
+      if (!body) { toast('Écrivez votre message.', true); return; }
+      var pid = kind === 'feedback-reply' ? (isNaN(+f.dataset.id) ? f.dataset.id : +f.dataset.id) : null;
+      try { await attempt(function () { return Store.postFeedback(kind === 'feedback' ? f.querySelector('#fb-kind').value : 'reply', body, pid, S.view); }, kind === 'feedback' ? 'Message envoyé au développeur' : 'Réponse envoyée'); render(); } catch (err) {}
+      return;
+    }
     if (kind === 'request-self') {
       var r3 = { type: f.querySelector('#rq-type').value, start_date: f.querySelector('#rq-start').value, end_date: f.querySelector('#rq-end').value, comment: f.querySelector('#rq-comment').value.trim() };
       if (!r3.start_date || !r3.end_date || r3.end_date < r3.start_date) { toast('Choisissez une période valide.', true); return; }
@@ -3188,7 +3346,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '58';
+  var APP_VERSION = '59';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {

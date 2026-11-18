@@ -4,15 +4,18 @@
    Chaque opération est atomique : si une règle refuse, rien n'est modifié. */
 (function () {
   'use strict';
-  if (window.Store || (window.RELEVE_CONFIG || {}).SUPABASE_URL) return; // Supabase configuré : pas de démo
-  var C = window.Calc, KEY = 'hpg-demo-v27', db, me;
+  /* build({}) : la démo (données fictives gardées dans ce navigateur).
+     build({ db, user }) : « bac à sable » du développeur — copie en mémoire des vraies données, ouverte avec le compte « user » ;
+     toutes les actions marchent avec les mêmes règles, rien n'est envoyé au serveur ni gardé. */
+  function build(cfg) {
+  var C = window.Calc, KEY = 'hpg-demo-v27', db, me, MEM = !!cfg.db;
 
   function uid() { return 'id' + Math.random().toString(36).slice(2, 10); }
   function hm5(t) { return String(t || '').slice(0, 5); }
   function today() { var d = new Date(); return C.iso(new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))); }
   function nowIso() { return new Date().toISOString(); }
   function clone(x) { return x === undefined ? undefined : JSON.parse(JSON.stringify(x)); }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} }
+  function save() { if (MEM) return; try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} }
   function fail(m) { throw new Error(m); }
   var LABELS = { work: 'Travail', repos: 'Repos', formation: 'Formation', cp: 'Congés payés', ferie: 'Jour férié', recup: 'Jour récupéré', rendre: 'Jour à rendre',
     anciennete: "Jour d'ancienneté", ot_day: 'Récup heures supp', maladie: 'Arrêt maladie', at: 'Accident du travail', css: 'Congé sans solde', absence: 'Absence' };
@@ -78,8 +81,8 @@
 
   /* ---------------- Données de départ ---------------- */
   var DEFAULT_RIGHTS = {
-    manager: { planning: true, publish: true, copy_week: true, requests: true, owed: true, presence: true, overtime: true, team: true },
-    assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false },
+    manager: { planning: true, publish: true, copy_week: true, requests: true, owed: true, presence: true, overtime: true, team: true, journal: true },
+    assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false, journal: true },
     employee: { team_planning: false, balances: true }
   };
   function seed() {
@@ -472,7 +475,7 @@
     Object.keys(d.settingsBy || {}).forEach(function (k) {
       var st = d.settingsBy[k]; if (!st.extra_grid) st.extra_grid = clone(DEMO_GRID);
       var r = st.rights || (st.rights = {});
-      r.manager = Object.assign({ extras: true, extras_sign: true }, r.manager); r.assistant = Object.assign({ extras: true, extras_sign: false }, r.assistant);
+      r.manager = Object.assign({ extras: true, extras_sign: true, journal: true }, r.manager); r.assistant = Object.assign({ extras: true, extras_sign: false, journal: true }, r.assistant);
     });
     if (!d.mirrorSeeded && d.templates && d.services) {
       d.mirrorSeeded = true; var dirId = (d.templates.find(function (t) { return t.service_id === 1 && /direction/i.test(t.name); }) || {}).id;
@@ -499,7 +502,8 @@
     }
     return d;
   }
-  db = upgradeExtras(load()); save(); me = profile(db.currentUser);
+  if (MEM) { db = cfg.db; db.currentUser = cfg.user; } else { db = upgradeExtras(load()); save(); }
+  me = profile(db.currentUser);
   function ok(v) { save(); return Promise.resolve(clone(v)); }
   /* opération atomique : en cas de refus, la base de démo est remise dans son état précédent */
   function run(fn) {
@@ -509,8 +513,8 @@
   }
   function mustAdmin() { if (!isAdm()) fail("Réservé à l'administrateur."); }
 
-  window.Store = {
-    mode: 'demo',
+  return {
+    mode: MEM ? 'sandbox' : 'demo',
     me: function () { return me && clone(me); },
     init: function () { me = profile(db.currentUser); return Promise.resolve(me && me.active ? clone(me) : null); },
     onAuthChange: function () {},
@@ -898,11 +902,11 @@
           if (r.employee_id === me.id && !isAdm()) fail('Vous ne pouvez pas valider votre propre demande.');
           if (!isAdm() && ['manager', 'assistant', 'admin'].indexOf((profile(r.employee_id) || {}).role) >= 0) fail("Les demandes de l'encadrement sont validées par l'administrateur.");
           r.manager_id = me.id; r.manager_at = now;
-          if (!approve) { r.status = 'refused'; r.refusal_reason = reason; if (dec) notify(r.employee_id, 'Demande refusée', lbl + ' — ' + reason); }
+          if (!approve) { r.status = 'refused'; r.refusal_reason = reason; if (dec) notify(r.employee_id, 'Demande refusée par ' + me.full_name, lbl + ' — ' + reason); }
           else if (r.type === 'cp' && !isAdm()) {
             r.status = 'pending_admin';
-            if (dec) { notify(r.employee_id, 'Demande validée par votre manager', lbl + ' : en attente de la validation finale.'); db.profiles.forEach(function (p) { if (p.role === 'admin' && p.company_id === svcCo(r.service_id)) notify(p.id, 'Congés à valider', lbl + ' — validé par le manager.'); }); }
-          } else { applyRequest(r); r.status = 'approved'; if (r.type === 'cp') { r.admin_id = me.id; r.admin_at = now; } if (dec) notify(r.employee_id, 'Demande acceptée', lbl); }
+            if (dec) { notify(r.employee_id, 'Demande validée par ' + me.full_name, lbl + ' : en attente de la validation finale de la direction.'); db.profiles.forEach(function (p) { if (p.role === 'admin' && p.company_id === svcCo(r.service_id)) notify(p.id, 'Congés à valider', lbl + ' — validé par le manager.'); }); }
+          } else { applyRequest(r); r.status = 'approved'; if (r.type === 'cp') { r.admin_id = me.id; r.admin_at = now; } if (dec) notify(r.employee_id, 'Demande acceptée par ' + me.full_name, lbl); }
         } else if (r.status === 'pending_admin') {
           if (!isAdm()) fail("Seul l'administrateur peut donner la validation finale.");
           r.admin_id = me.id; r.admin_at = now;
@@ -922,8 +926,18 @@
     },
 
     auditEntries: function (limit) {
-      if (!isAdm() || !adminRight('journal')) return ok([]);
-      return ok(db.audit.filter(function (a) { return a.company_id === myCo(); }).reverse().slice(0, limit || 200).map(function (a) {
+      var mgr = (role() === 'manager' || role() === 'assistant');
+      if (!(isAdm() && adminRight('journal')) && !mgr) return ok([]);
+      function mine(a) {
+        if (!mgr) return true;
+        if (a.table_name === 'settings' || a.table_name === 'companies') return false;
+        var r = a.new_data || a.old_data || {}, sv = a.table_name === 'services' ? +a.row_id : r.service_id;
+        if (sv && can('journal', +sv)) return true;
+        var emp = a.table_name === 'profiles' ? a.row_id : r.employee_id;
+        if (emp && svcsOf(profile(emp)).some(function (x) { return can('journal', x); })) return true;
+        return a.table_name === 'extras' && (r.services || []).some(function (x) { return can('journal', x); });
+      }
+      return ok(db.audit.filter(function (a) { return a.company_id === myCo() && mine(a); }).reverse().slice(0, limit || 200).map(function (a) {
         var p = profile(a.actor);
         return { at: a.at, actor_name: p ? (p.role === 'developer' ? 'Développeur' : p.full_name) : 'Système', table_name: a.table_name, action: a.action, row_id: a.row_id, old_data: a.old_data, new_data: a.new_data };
       }));
@@ -1052,8 +1066,140 @@
     },
     markExtraPrinted: function (id) { return run(function () { var c = db.xcontracts.find(function (k) { return k.id === id; }); if (c && can('extras', c.service_id)) c.printed_at = nowIso(); }); },
 
+    staffMix: function (from, to) {
+      var g = {};
+      db.shifts.forEach(function (sh) {
+        if (sh.kind !== 'work' || sh.day < from || sh.day > to || !staffOf(sh.service_id)) return;
+        var p = profile(sh.employee_id); if (!p) return;
+        var k = sh.service_id + '|' + p.contract_type, x = g[k] = g[k] || { service_id: sh.service_id, contract_type: p.contract_type, ids: {}, shifts: 0, minutes: 0 };
+        x.ids[p.id] = 1; x.shifts++; x.minutes += C.shiftDetail(sh).worked;
+      });
+      return ok(Object.keys(g).map(function (k) { var x = g[k]; return { service_id: x.service_id, contract_type: x.contract_type, people: Object.keys(x.ids).length, shifts: x.shifts, minutes: x.minutes }; }));
+    },
+    /* ---------- Échanges de shifts (mêmes règles que la base) ---------- */
+    swaps: function () {
+      db.swaps = db.swaps || [];
+      return ok(db.swaps.filter(function (w) { return w.company_id === myCo() && (w.requester_id === me.id || w.target_id === me.id || can('planning', w.service_id)); })
+        .sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); }));
+    },
+    swapCandidates: function (shiftId) {
+      var s = db.shifts.find(function (x) { return x.id === shiftId; });
+      if (!s || s.employee_id !== me.id || !empRight('swaps')) return ok([]);
+      var lo = C.addDays(s.day, -21), hi = C.addDays(s.day, 21), tm = C.addDays(today(), 1);
+      return ok(db.shifts.filter(function (o) {
+        var p = profile(o.employee_id);
+        return o.service_id === s.service_id && o.employee_id !== me.id && p && p.active && p.role === 'employee' && (o.kind === 'work' || o.kind === 'repos') && !o.request_id &&
+          !o.jour_sup && !o.jour_rendu && o.day >= (lo > tm ? lo : tm) && o.day <= hi && isPublished(o.service_id, o.day);
+      }).map(function (o) { return { shift_id: o.id, employee_id: o.employee_id, full_name: profile(o.employee_id).full_name, day: o.day, kind: o.kind, start_time: o.start_time, end_time: o.end_time, label: o.label, color: o.color, template_id: o.template_id }; })
+        .sort(function (a, b) { return a.day.localeCompare(b.day) || a.full_name.localeCompare(b.full_name); }));
+    },
+    createSwap: function (shiftId, targetId, note) {
+      return run(function () {
+        db.swaps = db.swaps || [];
+        if (role() !== 'employee' || !empRight('swaps')) fail('Les échanges de shifts ne sont pas activés pour votre compte.');
+        var a = db.shifts.find(function (x) { return x.id === shiftId; }), b = db.shifts.find(function (x) { return x.id === targetId; });
+        if (!a || a.employee_id !== me.id) fail('Choisissez un de vos shifts.');
+        if (!b || b.employee_id === me.id) fail("Choisissez le shift d'un collègue.");
+        if (a.service_id !== b.service_id) fail("L'échange se fait entre salariés du même service.");
+        if (a.day <= today() || b.day <= today()) fail('Seuls les jours à venir (à partir de demain) peuvent être échangés.');
+        if ([a, b].some(function (x) { return (x.kind !== 'work' && x.kind !== 'repos') || x.request_id || x.jour_sup || x.jour_rendu; })) fail('Seuls les shifts de travail et les repos peuvent être échangés (pas les congés ni les jours à rendre ou à récupérer).');
+        if (a.kind === 'repos' && b.kind === 'repos') fail('Échanger deux repos ne change rien.');
+        if (!isPublished(a.service_id, a.day) || !isPublished(b.service_id, b.day)) fail("Le planning de ces jours n'est pas encore publié.");
+        if (db.swaps.some(function (w) { return /^pending/.test(w.status) && [w.requester_shift_id, w.target_shift_id].some(function (i) { return i === a.id || i === b.id; }); })) fail("Un échange est déjà en cours pour l'un de ces shifts.");
+        function lbl(x) { return x.kind === 'work' ? (x.label || 'Travail') + ' ' + hm(x.start_time) + '–' + hm(x.end_time) : label(x.kind); }
+        var r = { id: uid(), company_id: svcCo(a.service_id), service_id: a.service_id, requester_id: me.id, requester_shift_id: a.id, target_id: b.employee_id, target_shift_id: b.id,
+          requester_day: a.day, requester_label: lbl(a), target_day: b.day, target_label: lbl(b), note: (note || '').trim() || null, status: 'pending_peer', peer_at: null,
+          decided_by: null, decided_at: null, refusal_reason: null, created_at: nowIso() };
+        db.swaps.push(r); audit('shift_swaps', r, 'INSERT');
+        notify(b.employee_id, 'Échange de shift proposé', me.full_name + ' vous propose son ' + r.requester_label + ' du ' + dm(a.day) + ' contre votre ' + r.target_label + ' du ' + dm(b.day) + '. Répondez dans « Mon planning ».');
+        return r;
+      });
+    },
+    respondSwap: function (id, accept) {
+      return run(function () {
+        var r = (db.swaps || []).find(function (w) { return w.id === id; });
+        if (!r || r.target_id !== me.id) fail('Échange introuvable.');
+        if (r.status !== 'pending_peer') fail("Cet échange n'attend plus votre réponse.");
+        var o0 = clone(r); r.peer_at = nowIso();
+        if (accept) {
+          r.status = 'pending_manager';
+          notify(r.requester_id, 'Échange accepté par votre collègue', me.full_name + ' a accepté l\'échange du ' + dm(r.requester_day) + '. Il attend la validation de votre manager.');
+          db.profiles.forEach(function (p) { if (p.active && (p.role === 'manager' || p.role === 'assistant') && worksIn(p.id, r.service_id) && ((ST(r.company_id).rights[p.role] || {}).planning)) notify(p.id, 'Échange de shifts à valider', profile(r.requester_id).full_name + ' et ' + me.full_name + ' : ' + dm(r.requester_day) + ' ↔ ' + dm(r.target_day) + '.'); });
+        } else { r.status = 'refused'; r.refusal_reason = 'Refusé par ' + me.full_name; notify(r.requester_id, 'Échange refusé', me.full_name + ' a refusé l\'échange du ' + dm(r.requester_day) + '.'); }
+        audit('shift_swaps', r, 'UPDATE', o0); return r;
+      });
+    },
+    cancelSwap: function (id) {
+      return run(function () {
+        var r = (db.swaps || []).find(function (w) { return w.id === id; });
+        if (!r || (r.requester_id !== me.id && !can('planning', r.service_id))) fail('Échange introuvable.');
+        if (!/^pending/.test(r.status)) fail('Cet échange est déjà terminé.');
+        var o0 = clone(r); r.status = 'cancelled'; r.decided_at = nowIso(); r.decided_by = me.id;
+        if (r.requester_id === me.id) notify(r.target_id, 'Échange annulé', 'L\'échange proposé pour le ' + dm(r.target_day) + ' a été annulé.');
+        audit('shift_swaps', r, 'UPDATE', o0); return r;
+      });
+    },
+    decideSwap: function (id, approve, reason) {
+      return run(function () {
+        var r = (db.swaps || []).find(function (w) { return w.id === id; });
+        if (!r || !can('planning', r.service_id)) fail('Vous ne pouvez pas valider cet échange.');
+        if (r.status !== 'pending_manager') fail("Cet échange n'attend pas de validation.");
+        var o0 = clone(r);
+        if (!approve) {
+          if (!String(reason || '').trim()) fail('Indiquez le motif du refus.');
+          r.status = 'refused'; r.decided_by = me.id; r.decided_at = nowIso(); r.refusal_reason = String(reason).trim();
+          [r.requester_id, r.target_id].forEach(function (x) { notify(x, 'Échange refusé', 'L\'échange ' + dm(r.requester_day) + ' ↔ ' + dm(r.target_day) + ' a été refusé par ' + me.full_name + ' : ' + r.refusal_reason + '.'); });
+          audit('shift_swaps', r, 'UPDATE', o0); return r;
+        }
+        var a = db.shifts.find(function (x) { return x.id === r.requester_shift_id; }), b = db.shifts.find(function (x) { return x.id === r.target_shift_id; });
+        if (!a || !b || a.employee_id !== r.requester_id || b.employee_id !== r.target_id || a.day !== r.requester_day || b.day !== r.target_day)
+          fail('Le planning a changé depuis la demande : l\'échange ne peut plus être appliqué. Refusez-le et demandez-en un nouveau.');
+        a.employee_id = r.target_id; b.employee_id = r.requester_id;
+        [a, b].forEach(function (x) { if (x.kind === 'work') { var e = restError(x); if (e) fail(e); } });
+        r.status = 'approved'; r.decided_by = me.id; r.decided_at = nowIso();
+        [r.requester_id, r.target_id].forEach(function (x) { notify(x, 'Échange de shifts validé', 'Échange ' + dm(r.requester_day) + ' ↔ ' + dm(r.target_day) + ' validé par ' + me.full_name + ' : votre planning est mis à jour.'); });
+        audit('shift_swaps', r, 'UPDATE', o0); return r;
+      });
+    },
+    /* ---------- Retours (bugs, améliorations) ---------- */
+    feedback: function () {
+      db.feedback = db.feedback || [];
+      if (!(role() === 'developer' || role() === 'admin' || role() === 'manager' || role() === 'assistant')) return ok([]);
+      return ok(db.feedback.filter(function (f) { return role() === 'developer' || f.company_id === myCo(); }).sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); }));
+    },
+    postFeedback: function (kind, body, parentId, view) {
+      return run(function () {
+        db.feedback = db.feedback || [];
+        if (['developer', 'admin', 'manager', 'assistant'].indexOf(role()) < 0) fail("Réservé à l'encadrement.");
+        body = String(body || '').trim(); if (!body) fail('Écrivez votre message.'); if (body.length > 2000) fail('Message trop long (2000 caractères maximum).');
+        var row;
+        if (parentId) {
+          var par = db.feedback.find(function (f) { return f.id === parentId && !f.parent_id; }); if (!par) fail('Message introuvable.');
+          row = { id: uid(), company_id: par.company_id, author_id: me.id, parent_id: par.id, kind: 'reply', body: body, status: 'open', view: null, created_at: nowIso() };
+          if (role() === 'developer') notify(par.author_id, 'Réponse du développeur', body.slice(0, 140));
+          else db.profiles.forEach(function (d) { if (d.role === 'developer' && d.active) notify(d.id, 'Retour HPG : nouvelle réponse', me.full_name + ' : ' + body.slice(0, 120)); });
+        } else {
+          if (['bug', 'idea', 'question'].indexOf(kind) < 0) fail('Type inconnu.');
+          row = { id: uid(), company_id: myCo(), author_id: me.id, parent_id: null, kind: kind, body: body, status: 'open', view: view || null, created_at: nowIso() };
+          db.profiles.forEach(function (d) { if (d.role === 'developer' && d.active && d.id !== me.id) notify(d.id, kind === 'bug' ? 'Retour HPG : bug signalé' : kind === 'idea' ? 'Retour HPG : amélioration proposée' : 'Retour HPG : question', me.full_name + ' : ' + body.slice(0, 120)); });
+        }
+        db.feedback.push(row); return row;
+      });
+    },
+    setFeedbackStatus: function (id, status) {
+      return run(function () {
+        if (role() !== 'developer') fail('Réservé au développeur.');
+        var f = (db.feedback || []).find(function (x) { return x.id === id && !x.parent_id; }); if (!f) fail('Message introuvable.');
+        f.status = status; notify(f.author_id, 'Votre retour HPG : ' + ({ open: 'rouvert', in_progress: 'en cours', done: 'traité', wontfix: 'non retenu' }[status] || status), f.body.slice(0, 140));
+        return f;
+      });
+    },
+
     notifications: function () { return ok(db.notifications.filter(function (n) { return n.user_id === me.id; }).slice(0, 40)); },
     markAllRead: function () { return run(function () { db.notifications.forEach(function (n) { if (n.user_id === me.id && !n.read_at) n.read_at = nowIso(); }); }); },
     savePush: function () { return Promise.resolve(); }
   };
+  }
+  window.HPGDemo = { create: function (snapshot, userId) { return build({ db: snapshot, user: userId }); } };
+  if (!(window.Store || (window.RELEVE_CONFIG || {}).SUPABASE_URL)) window.Store = build({});
 })();

@@ -7,6 +7,11 @@
   var sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
   var me = null;
 
+  /* La base renvoie au plus 1000 lignes par requête : on lit page par page (un mois d'hôtel entier dépasse vite 1000 shifts) */
+  async function pages(make) {
+    var out = [], n = 0;
+    for (;;) { var r = must(await make().range(n, n + 999)); out = out.concat(r); if (r.length < 1000) return out; n += 1000; }
+  }
   function must(res) {
     if (res.error) throw new Error(translate(res.error.message));
     return res.data;
@@ -95,10 +100,12 @@
     updateProfile: async function (id, patch) { return must(await sb.rpc('update_profile', { p_id: id, p: patch })); },
 
     shifts: async function (from, to, f) {
-      var q = sb.from('shifts').select('*').gte('day', from).lte('day', to).order('day').order('start_time');
-      if (f && f.serviceId) q = q.eq('service_id', f.serviceId);
-      if (f && f.employeeId) q = q.eq('employee_id', f.employeeId);
-      return must(await q);
+      return pages(function () {
+        var q = sb.from('shifts').select('*').gte('day', from).lte('day', to).order('day').order('start_time').order('id');
+        if (f && f.serviceId) q = q.eq('service_id', f.serviceId);
+        if (f && f.employeeId) q = q.eq('employee_id', f.employeeId);
+        return q;
+      });
     },
     mirrorShifts: async function (svc, from, to) { var r = await sb.rpc('mirror_shifts', { p_svc: svc, p_from: from, p_to: to }); return r.error ? [] : r.data || []; },
     otherServiceDays: async function (svc, from, to) { var r = await sb.rpc('other_service_days', { p_svc: svc, p_from: from, p_to: to }); return r.error ? [] : r.data || []; },
@@ -115,7 +122,7 @@
       return must(await sb.rpc('replace_cell', { p_delete: deleteIds || [], p_row: row }));
     },
     staffingValues: async function (svc, from, to) {
-      return must(await sb.from('staffing_values').select('service_id,day,key,value').eq('service_id', svc).gte('day', from).lte('day', to));
+      return pages(function () { return sb.from('staffing_values').select('service_id,day,key,value').eq('service_id', svc).gte('day', from).lte('day', to).order('day').order('key'); });
     },
     saveStaffingValue: async function (svc, day, key, value) {
       if (value === null || value === '' || isNaN(value)) { must(await sb.from('staffing_values').delete().eq('service_id', svc).eq('day', day).eq('key', key)); return null; }
@@ -137,7 +144,7 @@
     publishMonth: async function (svc, month) { must(await sb.rpc('publish_month', { p_service: svc, p_month: month.slice(0, 7) + '-01' })); },
     unpublishMonth: async function (svc, month) { must(await sb.rpc('unpublish_month', { p_service: svc, p_month: month.slice(0, 7) + '-01' })); },
 
-    requests: async function () { return must(await sb.from('requests').select('*').order('created_at', { ascending: false })); },
+    requests: async function () { return pages(function () { return sb.from('requests').select('*').order('created_at', { ascending: false }).order('id'); }); },
     createRequest: async function (r) {
       var row = { type: r.type, start_date: r.start_date, end_date: r.end_date, comment: r.comment || null };
       if (r.employee_id) row.employee_id = r.employee_id;
@@ -148,10 +155,12 @@
 
 
     overtime: async function (from, to, f) {
-      var q = sb.from('overtime_entries').select('*').gte('day', from).lte('day', to).order('day', { ascending: false });
-      if (f && f.serviceId) q = q.eq('service_id', f.serviceId);
-      if (f && f.employeeId) q = q.eq('employee_id', f.employeeId);
-      return must(await q);
+      return pages(function () {
+        var q = sb.from('overtime_entries').select('*').gte('day', from).lte('day', to).order('day', { ascending: false }).order('id');
+        if (f && f.serviceId) q = q.eq('service_id', f.serviceId);
+        if (f && f.employeeId) q = q.eq('employee_id', f.employeeId);
+        return q;
+      });
     },
     saveOvertime: async function (o) {
       return must(await sb.from('overtime_entries').upsert({ shift_id: o.shift_id, minutes: o.minutes, reason: o.reason || null }, { onConflict: 'shift_id' }).select().single());
@@ -173,9 +182,11 @@
     auditEntries: async function (limit) { return must(await sb.rpc('audit_entries', { p_limit: limit || 200 })); },
     creditFerie: async function (ids, days, holiday, reason) { return must(await sb.rpc('credit_ferie', { p_ids: ids, p_days: days, p_holiday: holiday || null, p_reason: reason || null })); },
     owedDays: async function (f) {
-      var q = sb.from('owed_days').select('*').order('origin_date', { ascending: true, nullsFirst: false });
-      if (f && f.employeeId) q = q.eq('employee_id', f.employeeId);
-      var rows = must(await q);
+      var rows = await pages(function () {
+        var q = sb.from('owed_days').select('*').order('origin_date', { ascending: true, nullsFirst: false }).order('id');
+        if (f && f.employeeId) q = q.eq('employee_id', f.employeeId);
+        return q;
+      });
       if (f && f.serviceId) {
         var ids = must(await sb.from('profile_services').select('profile_id').eq('service_id', f.serviceId)).map(function (x) { return x.profile_id; });
         rows = rows.filter(function (o) { return ids.indexOf(o.employee_id) >= 0; });
@@ -233,6 +244,18 @@
     },
     markExtraPrinted: async function (id) { must(await sb.from('extra_contracts').update({ printed_at: new Date().toISOString() }).eq('id', id)); },
 
+    staffMix: async function (from, to) { return must(await sb.rpc('staff_mix', { p_from: from, p_to: to })); },
+    /* Échanges de shifts entre salariés (collègue puis manager/assistant) */
+    swaps: async function () { return pages(function () { return sb.from('shift_swaps').select('*').order('created_at', { ascending: false }).order('id'); }); },
+    swapCandidates: async function (shiftId) { return must(await sb.rpc('swap_candidates', { p_shift: shiftId })); },
+    createSwap: async function (shiftId, targetShiftId, note) { return must(await sb.rpc('create_swap', { p_shift: shiftId, p_target_shift: targetShiftId, p_note: note || null })); },
+    respondSwap: async function (id, accept) { return must(await sb.rpc('respond_swap', { p_id: id, p_accept: accept })); },
+    cancelSwap: async function (id) { return must(await sb.rpc('cancel_swap', { p_id: id })); },
+    decideSwap: async function (id, approve, reason) { return must(await sb.rpc('decide_swap', { p_id: id, p_approve: approve, p_reason: reason || null })); },
+    /* Retours (bugs, améliorations) vers le développeur */
+    feedback: async function () { return must(await sb.from('feedback').select('*').order('created_at', { ascending: false }).limit(500)); },
+    postFeedback: async function (kind, body, parentId, view) { return must(await sb.rpc('post_feedback', { p_kind: kind, p_body: body, p_parent: parentId || null, p_view: view || null })); },
+    setFeedbackStatus: async function (id, status) { return must(await sb.rpc('set_feedback_status', { p_id: id, p_status: status })); },
     notifications: async function () { return must(await sb.from('notifications').select('*').order('created_at', { ascending: false }).limit(40)); },
     markAllRead: async function () { must(await sb.from('notifications').update({ read_at: new Date().toISOString() }).is('read_at', null).eq('user_id', me.id)); },
 
