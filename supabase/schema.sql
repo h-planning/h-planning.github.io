@@ -932,10 +932,13 @@ begin
   new.status := 'pending_manager';
   new.manager_id := null; new.admin_id := null; new.manager_at := null; new.admin_at := null;
 
-  -- les demandes sont saisies par l'encadrement (droit « requests ») pour un salarié ; jamais par le salarié lui-même.
+  -- les demandes sont saisies par l'encadrement (droit « requests ») pour un salarié, ou par le salarié lui-même
+  -- si l'option « Faire ses demandes de congés » est activée (Paramètres → Droits des rôles → Salarié).
   -- La demande d'un manager ou d'un assistant est saisie par l'administrateur.
   if p.id = me.id and not public.is_admin() then
-    raise exception 'Les demandes sont saisies par votre manager.';
+    if not (me.role = 'employee' and public.employee_right('requests')) then
+      raise exception 'Les demandes sont saisies par votre manager.';
+    end if;
   elsif not exists (select 1 from profile_services ps where ps.profile_id = p.id and public.can('requests', ps.service_id)) then
     raise exception 'Vous ne pouvez saisir des demandes que pour les salariés que vous gérez.';
   elsif p.role in ('manager','assistant','admin') and not public.is_admin() then

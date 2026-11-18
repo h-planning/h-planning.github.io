@@ -863,8 +863,9 @@
         var svc = p.service_id || svcsOf(p)[0]; if (!svc) fail("Ce salarié n'a pas de service.");
         if (r.start_date > r.end_date) fail('La date de fin doit suivre la date de début.');
         // saisie par l'encadrement pour un salarié, jamais par le salarié lui-même
-        if (p.id === me.id && !isAdm()) fail('Les demandes sont saisies par votre manager.');
-        if (!svcsOf(p).some(function (s) { return can('requests', s); })) fail('Vous ne pouvez saisir des demandes que pour les salariés que vous gérez.');
+        var self = p.id === me.id && !isAdm();
+        if (self && !(role() === 'employee' && empRight('requests'))) fail('Les demandes sont saisies par votre manager.');
+        if (!self && !svcsOf(p).some(function (s) { return can('requests', s); })) fail('Vous ne pouvez saisir des demandes que pour les salariés que vous gérez.');
         if (['manager', 'assistant', 'admin'].indexOf(p.role) >= 0 && !isAdm()) fail("La demande d'un membre de l'encadrement est saisie par l'administrateur.");
         r = Object.assign({}, r);
         // CP en jours ouvrables : le 1er jour de repos qui suit la fin est décompté aussi

@@ -136,6 +136,8 @@
     return false;
   }
   function empRight(r) { return !!rights('employee')[r]; }
+  /* Le salarié fait lui-même ses demandes de congés (Paramètres → Droits des rôles → Salarié) */
+  function selfRequests() { return role() === 'employee' && empRight('requests') && feat('demandes'); }
   /* Options de l'entreprise (fiche Entreprise, réglées par le développeur). Une option absente de la fiche est activée :
      chaque nouvelle option ajoutée ici apparaît d'elle-même dans la liste, cochée, pour toutes les entreprises. */
   var FEATURES = [
@@ -266,7 +268,7 @@
     }
     t.push(['planning', 'Mon planning', ICON.cal]);
     if (empRight('team_planning') && feat('equipe_planning')) t.push(['equipe-planning', 'Planning équipe', ICON.users]);
-    if (empRight('balances') && feat('soldes')) t.push(['mes-demandes', 'Mes soldes', ICON.inbox]);
+    if ((empRight('balances') && feat('soldes')) || (selfRequests())) t.push(['mes-demandes', empRight('balances') && feat('soldes') ? 'Mes soldes' : 'Mes demandes', ICON.inbox]);
     return t;
   }
   function demoBar() {
@@ -417,11 +419,19 @@
     var res = await Promise.all([Store.requests(), Store.otBalance(me.id).catch(function () { return null; }), Store.owedDays({ employeeId: me.id })]);
     var mine = res[0].filter(function (r) { return r.employee_id === me.id; });
     var list = mine.length ? mine.map(function (r) { return requestItem(r, false); }).join('') : '<div class="empty">Aucune demande enregistrée.</div>';
-    return '<div class="page-head"><div><div class="eyebrow">Absences et compteurs</div><h2>Mes soldes</h2></div></div>' +
-      '<div class="stats">' + balanceStats(me, res[1]) + '</div>' +
-      '<div class="banner info">Pour un congé ou un jour à récupérer, adressez-vous à votre manager : c\'est lui qui saisit et valide la demande dans HPG.</div>' +
+    var bal = role() !== 'employee' || (empRight('balances') && feat('soldes'));
+    var form = selfRequests() ? '<section class="panel"><h3>Faire une demande</h3>' +
+      '<form class="form" data-submit="request-self" novalidate><div class="two"><label class="f">Type<select id="rq-type" data-change="rq-preview">' + Object.keys(TYPES).map(function (k) { return '<option value="' + k + '">' + TYPES[k] + '</option>'; }).join('') + '</select></label>' +
+      '<label class="f">Commentaire (facultatif)<input type="text" id="rq-comment" maxlength="300"></label></div>' +
+      '<div class="two"><label class="f">Du<input type="date" id="rq-start" data-change="rq-preview" value="' + today() + '" min="' + today() + '"></label><label class="f">Au<input type="date" id="rq-end" data-change="rq-preview" value="' + today() + '" min="' + today() + '"></label></div>' +
+      '<div class="small muted" id="rq-preview">' + previewText('cp', today(), today()) + '</div>' +
+      '<div class="row"><button class="btn primary" type="submit">Envoyer la demande</button></div>' +
+      '<p class="small muted" style="margin:0">Votre manager reçoit la demande et la valide ; les congés payés partent ensuite à la direction pour la validation finale. Vous êtes prévenu(e) de la décision.</p></form></section>'
+      : role() === 'employee' ? '<div class="banner info">Pour un congé ou un jour à récupérer, adressez-vous à votre manager : c\'est lui qui saisit et valide la demande dans HPG.</div>' : '';
+    return '<div class="page-head"><div><div class="eyebrow">Absences et compteurs</div><h2>' + (bal ? 'Mes soldes' : 'Mes demandes') + '</h2></div></div>' +
+      (bal ? '<div class="stats">' + balanceStats(me, res[1]) + '</div>' : '') + form +
       '<section class="list" aria-label="Mes demandes"><h3>Mes demandes</h3>' + list + '</section>' +
-      '<section class="panel"><h3>Mes jours fériés, à récupérer et à rendre</h3>' + owedTable(res[2], false) + '</section>';
+      (bal ? '<section class="panel"><h3>Mes jours fériés, à récupérer et à rendre</h3>' + owedTable(res[2], false) + '</section>' : '');
   }
   function cpPeriod() {
     var st = S.settings, last = C.cpLastCredit(today(), st.cp_credit_month || 5, st.cp_credit_day || 1);
@@ -473,6 +483,7 @@
     });
     return { shifts: list, team: add.length ? sortTeam(team.concat(add), svc) : team };
   }
+  function isTemp(p) { return p.contract_type === 'extra' || p.contract_type === 'interim'; }
   function sortTeam(list, svc) {
     return list.sort(function (a, b) {
         var la = locIndex(svc, locOf(a, svc)), lb = locIndex(svc, locOf(b, svc));
@@ -640,7 +651,8 @@
     await loadXMarks(svc, first, last);
     var pubs = res[1].map(function (p) { return p.month; }), published = pubs.indexOf(first) >= 0, team = teamOf(svc);
     S.cache.staffVals = {}; res[3].forEach(function (v) { (S.cache.staffVals[v.day] = S.cache.staffVals[v.day] || {})[v.key] = v.value; });
-    if (role() === 'employee') team = team.filter(function (p) { return shifts.some(function (s) { return s.employee_id === p.id; }) || p.id === S.me.id; });
+    // salarié : toute l'équipe du service ; extras et intérimaires seulement s'ils ont des shifts ce mois-ci
+    if (role() === 'employee') team = team.filter(function (p) { return p.id === S.me.id || !isTemp(p) || shifts.some(function (s) { return s.employee_id === p.id; }); });
     var mir = await loadMirror(svc, first, last, team), disp = shifts.concat(mir.shifts); team = mir.team;
     S.cache.weekShifts = shifts; S.cache.around = around;
     S.cache.otByShift = {}; res[2].forEach(function (o) { if (o.shift_id) S.cache.otByShift[o.shift_id] = o; });
@@ -1505,7 +1517,7 @@
       return bal + (n.length ? '<div class="sub" style="color:var(--warn)">' + n.length + ' autre(s) absence(s) dans le service sur cette période : ' + n.map(function (x) { return esc(name(x.employee_id)); }).join(', ') + '</div>' : '');
     }
     var svcs = rightServices('requests'), people = S.profiles.filter(function (p) { return (p.id !== S.me.id || isAdmin()) && p.active && ['employee', 'assistant', 'manager', 'admin'].indexOf(p.role) >= 0 && (p.services || []).some(function (s) { return svcs.indexOf(s) >= 0; }); });
-    var form = svcs.length || isAdmin() ? '<section class="panel"><h3>Saisir une demande</h3><p class="hint" style="margin-top:0">Les salariés ne font pas de demande dans HPG : vous la saisissez puis vous la validez. Les congés payés partent ensuite à la direction pour la validation finale. Une demande d\'un manager ou d\'un assistant est saisie par l\'administrateur.</p>' +
+    var form = svcs.length || isAdmin() ? '<section class="panel"><h3>Saisir une demande</h3><p class="hint" style="margin-top:0">' + (empRight('requests') ? 'Les salariés font aussi leurs demandes eux-mêmes : elles arrivent ci-dessous, « À traiter ». ' : 'Les salariés ne font pas de demande dans HPG (option activable dans Paramètres → Droits des rôles) : ') + 'vous saisissez la demande puis vous la validez. Les congés payés partent ensuite à la direction pour la validation finale. Une demande d\'un manager ou d\'un assistant est saisie par l\'administrateur.</p>' +
       '<form class="form" data-submit="request-for" novalidate><div class="two"><label class="f">Salarié<select id="rf-emp">' + people.filter(function (p) { return isAdmin() || p.role === 'employee'; }).map(function (p) { return '<option value="' + p.id + '">' + esc(p.full_name) + ' · ' + esc((p.services || []).map(svcName).join(' + ')) + '</option>'; }).join('') + '</select></label>' +
       '<label class="f">Type<select id="rf-type">' + Object.keys(TYPES).map(function (k) { return '<option value="' + k + '">' + TYPES[k] + '</option>'; }).join('') + '</select></label></div>' +
       '<div class="two"><label class="f">Du<input type="date" id="rf-start" value="' + today() + '"></label><label class="f">Au<input type="date" id="rf-end" value="' + today() + '"></label></div>' +
@@ -1831,7 +1843,8 @@
     owed: 'Jours fériés, à récupérer et à rendre', presence: 'Fiches de présence et pointage', overtime: 'Heures supplémentaires', team: 'Créer et modifier les fiches de l\'équipe',
     extras: 'Extras : registre et contrats d\'extra', extras_sign: 'Extras : marquer un contrat « signé »' };
   var ADMIN_RIGHTS = Object.assign({}, { settings: 'Accéder aux Paramètres et les modifier', journal: 'Consulter le journal des modifications', company: 'Modifier la fiche de l\'entreprise', passwords: 'Changer les mots de passe de l\'équipe' }, null);
-  var EMP_RIGHTS = { team_planning: 'Voir le planning de toute l\'équipe (mois publiés)', balances: 'Consulter ses soldes et ses demandes (CP, fériés, ancienneté, heures supp)' };
+  var EMP_RIGHTS = { team_planning: 'Voir le planning de toute l\'équipe (mois publiés)', balances: 'Consulter ses soldes et ses demandes (CP, fériés, ancienneté, heures supp)',
+    requests: 'Faire ses demandes de congés dans HPG (validées ensuite par le manager, puis la direction pour les CP)' };
   var ST_DEFAULTS = {
     work: { default_contract_hours: 39, break_threshold_min: 360, break_min: 30, min_rest_hours: 11 }, req: { publish_weeks_ahead: 2 },
     cp: { cp_monthly_days: 2.5, cp_credit_day: 1, cp_credit_month: 5, cp_cap: 30, cp_contracts: ['cdi', 'cdd', 'alternant'] }, ot: { contingent_hours: 360, ot_day_minutes: 450 },
@@ -1876,7 +1889,7 @@
         '<div class="hint">Au-delà de ' + num((st.break_threshold_min || 360) / 60) + ' h de shift, ' + st.break_min + ' min sont déduites. Repos légal : 11 h ; ne le réduisez que si un accord applicable le permet.</div>', 'work'),
       card(ICON.inbox, 'Demandes et publication', 'Saisie des demandes et publication du planning mois par mois.',
         nf('publish_weeks_ahead', 'Le mois suivant doit être publié (semaines avant son début)', st.publish_weeks_ahead == null ? 2 : st.publish_weeks_ahead, 'min="0" max="8"') +
-        '<div class="hint">Les salariés ne font pas de demande : le manager (ou l\'assistant qui en a le droit) saisit la demande puis la valide. Congés payés : validation finale par l\'administrateur. Une demande d\'un manager ou d\'un assistant est saisie et validée par l\'administrateur.</div>', 'req'),
+        '<div class="hint">Sauf si l\'option « Faire ses demandes de congés » du salarié est activée (Droits des rôles), les salariés ne font pas de demande : le manager (ou l\'assistant qui en a le droit) saisit la demande puis la valide. Congés payés : validation finale par l\'administrateur. Une demande d\'un manager ou d\'un assistant est saisie et validée par l\'administrateur.</div>', 'req'),
       card(ICON.cal, 'Congés payés', 'Acquisition selon la date d\'entrée, crédit annuel, plafond.',
         '<div class="two">' + nf('cp_monthly_days', 'CP acquis par mois', st.cp_monthly_days, 'min="0" max="5" step="0.01"') + nf('cp_cap', 'Plafond par période (jours)', st.cp_cap || 30, 'min="0" max="60"') + '</div>' +
         '<div class="two"><label class="f">Crédit annuel : jour<input type="number" data-k="cp_credit_day" min="1" max="28" value="' + (st.cp_credit_day || 1) + '"></label><label class="f">mois<select data-k="cp_credit_month">' + monthOpts + '</select></label></div>' +
@@ -2173,6 +2186,8 @@
     function reqOf(d) { var r = reqFull(d); return r ? r.n : null; }
     var team = teamOf(svc), ids = team.map(function (p) { return p.id; });
     shifts.forEach(function (s) { if (ids.indexOf(s.employee_id) < 0) { var p = S.profiles.find(function (x) { return x.id === s.employee_id; }); if (p) { team.push(p); ids.push(p.id); } } });
+    // extras et intérimaires sans shift ce mois-ci : pas imprimés
+    team = team.filter(function (p) { return !isTemp(p) || shifts.some(function (s) { return s.employee_id === p.id; }); });
     var mir = await loadMirror(svc, first, last, team), disp = shifts.concat(mir.shifts); team = mir.team; ids = team.map(function (p) { return p.id; });
     var lastMod = shifts.filter(function (s) { return s.updated_at; }).reduce(function (a, s) { return !a || s.updated_at > a.updated_at ? s : a; }, null);
     var printed = new Date(), monthLabel = MOIS_L[+month.slice(5, 7) - 1] + ' ' + month.slice(0, 4), svcLabel = svcName(svc);
@@ -3042,6 +3057,12 @@
     var kind = e.target.dataset.submit, f = e.target;
     if (!kind) return;
     e.preventDefault();
+    if (kind === 'request-self') {
+      var r3 = { type: f.querySelector('#rq-type').value, start_date: f.querySelector('#rq-start').value, end_date: f.querySelector('#rq-end').value, comment: f.querySelector('#rq-comment').value.trim() };
+      if (!r3.start_date || !r3.end_date || r3.end_date < r3.start_date) { toast('Choisissez une période valide.', true); return; }
+      try { await attempt(function () { return Store.createRequest(r3); }, 'Demande envoyée à votre manager'); render(); } catch (err) {}
+      return;
+    }
     if (kind === 'request-for') {
       var andValidate = e.submitter && e.submitter.dataset.and === 'validate';
       var r2 = { employee_id: f.querySelector('#rf-emp').value, type: f.querySelector('#rf-type').value, start_date: f.querySelector('#rf-start').value, end_date: f.querySelector('#rf-end').value, comment: f.querySelector('#rf-comment').value.trim() };
@@ -3165,7 +3186,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '56';
+  var APP_VERSION = '57';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
