@@ -63,7 +63,7 @@ jobs:
             npx --yes web-push@3.6.7 generate-vapid-keys --json > /tmp/v.json
             PUB=$(jq -r .publicKey /tmp/v.json); PRIV=$(jq -r .privateKey /tmp/v.json); HOOK=$(openssl rand -hex 24); rm -f /tmp/v.json
             echo "::add-mask::$PRIV"; echo "::add-mask::$HOOK"
-            supabase secrets set --project-ref "$PROJECT_REF" VAPID_PUBLIC_KEY="$PUB" VAPID_PRIVATE_KEY="$PRIV" VAPID_SUBJECT="mailto:paulr.rochester@gmail.com" WEBHOOK_SECRET="$HOOK" > /dev/null
+            supabase secrets set --project-ref "$PROJECT_REF" VAPID_PUBLIC_KEY="$PUB" VAPID_PRIVATE_KEY="$PRIV" VAPID_SUBJECT="mailto:paulr.rochester@gmail.com" WEBHOOK_SECRET="$HOOK" --yes > /dev/null
             q "select public.hpg_set_push_config('$PUB', '$HOOK')"
             echo "clés créées"
           fi
