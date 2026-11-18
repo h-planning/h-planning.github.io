@@ -676,7 +676,8 @@
       var cells = days.map(function (d) {
         var ds = mine.filter(function (s) { return s.day === d; }), dw = C.dow(d);
         return '<td class="cell mcell' + (dw === 0 || dw === 6 ? ' we' : '') + (p._mirror ? ' mirror' : '') + '"' + (ro || p._mirror ? '' : ' tabindex="0" data-act="cell"') + ' data-emp="' + p.id + '" data-day="' + d + '" aria-label="' + esc(p.full_name) + ', ' + dayLong(d) + '">' +
-          ds.map(function (s) { return miniChip(s, ro || s._mirror ? 'tabindex="-1"' + (s._mirror ? ' data-mirror="1"' : '') : 'data-act="edit" data-id="' + s.id + '"' + (s.request_id ? '' : ' data-drag="move"')); }).join('') + (p._mirror ? '' : xMarkHtml(p.id, d)) + '</td>';
+          ds.map(function (s) { return miniChip(s, ro || s._mirror ? 'tabindex="-1"' + (s._mirror ? ' data-mirror="1"' : '') : 'data-act="edit" data-id="' + s.id + '"' + (s.request_id ? '' : ' data-drag="move"')); }).join('') + (p._mirror || ds.some(function (s) { return s._mirror; }) ? '' : xMarkHtml(p.id, d)) + '</td>';   // jour « Direction » recopié : la case montre le shift, pas le repère R
+
       }).join('');
       var g = groupOf(p, svc), gr = '';
       if (g !== grp) { grp = g; if (g) gr = groupRow(g, days.length + 2); }
@@ -2542,12 +2543,12 @@
       var p = S.profiles.find(function (q) { return q.id === s.employee_id; });
       return linked[s.employee_id] || (p && p.contract_type === 'extra');
     }).sort(function (a, b) { return a.day.localeCompare(b.day); });
-    var todoHtml = todo.length ? '<section class="panel"><h3 style="margin-top:0">Shifts d\'extras sans contrat <span class="muted small">(du ' + dFr(C.addDays(today(), -31)) + ' au ' + dFr(C.addDays(today(), 62)) + ')</span></h3><div class="table-wrap" style="border:0"><table><thead><tr><th>Date</th><th>Extra</th><th>Service</th><th>Horaires</th><th>Fiche</th><th></th></tr></thead><tbody>' +
+    var todoHtml = todo.length ? '<section class="panel"><h3 style="margin-top:0">Shifts d\'extras sans contrat <span class="muted small">(du ' + dFr(C.addDays(today(), -31)) + ' au ' + dFr(C.addDays(today(), 62)) + ')</span></h3><div class="table-wrap stackwrap" style="border:0"><table class="stack"><thead><tr><th>Extra</th><th>Date</th><th>Service</th><th>Horaires</th><th>Fiche</th><th></th></tr></thead><tbody>' +
       todo.map(function (s) {
         var x = linked[s.employee_id], miss = xMissing(x);
-        return '<tr><td>' + esc(dayShort(s.day)) + '</td><td>' + esc(x ? xName(x) : name(s.employee_id)) + '</td><td>' + esc(svcName(s.service_id)) + '</td><td>' + hhmm(s.start_time) + '–' + hhmm(s.end_time) + '</td>' +
-          '<td>' + (miss.length ? '<span class="pill warn">' + (x ? 'à compléter : ' + miss.join(', ') : 'pas de fiche') + '</span>' : '<span class="pill ok">complète</span>') + '</td>' +
-          '<td class="nowrap">' + (miss.length ? '<button type="button" class="btn sm" data-act="x-edit" data-id="' + (x ? x.id : '') + '" data-pid="' + s.employee_id + '">' + (x ? 'Compléter la fiche' : 'Créer la fiche') + '</button>'
+        return '<tr><td class="st-title"><b>' + esc(x ? xName(x) : name(s.employee_id)) + '</b></td><td data-l="Date" class="nowrap">' + esc(dayShort(s.day)) + '</td><td data-l="Service">' + esc(svcName(s.service_id)) + '</td><td data-l="Horaires" class="nowrap">' + hhmm(s.start_time) + '–' + hhmm(s.end_time) + '</td>' +
+          '<td data-l="Fiche">' + (miss.length ? '<span class="pill warn">' + (x ? 'à compléter : ' + miss.join(', ') : 'pas de fiche') + '</span>' : '<span class="pill ok">complète</span>') + '</td>' +
+          '<td class="nowrap st-acts">' + (miss.length ? '<button type="button" class="btn sm" data-act="x-edit" data-id="' + (x ? x.id : '') + '" data-pid="' + s.employee_id + '">' + (x ? 'Compléter la fiche' : 'Créer la fiche') + '</button>'
             : '<button type="button" class="btn sm brass" data-act="xc-from-shift" data-id="' + s.id + '">Créer et imprimer le contrat</button>') + '</td></tr>';
       }).join('') + '</tbody></table></div></section>' : '';
 
@@ -2563,11 +2564,11 @@
       var info = c.status === 'signed' ? 'signé le ' + stamp(new Date(c.signed_at)) + (c.signed_by ? ' par ' + name(c.signed_by) : '') :
         c.status === 'cancelled' ? 'annulé le ' + stamp(new Date(c.cancelled_at)) + (c.cancel_reason ? ' · ' + c.cancel_reason : '') :
         (c.printed_at ? 'imprimé le ' + stamp(new Date(c.printed_at)) : 'pas encore imprimé');
-      return '<tr' + (c.status === 'cancelled' ? ' class="muted"' : '') + '><td class="nowrap">' + esc(dayShort(c.day)) + ' ' + c.day.slice(0, 4) + '</td><td><b>' + esc(c.extra_name) + '</b>' + (c.shift_id ? ' <span class="muted small">(planning)</span>' : '') + '</td><td>' + esc(svcName(c.service_id)) + '</td>' +
-        '<td>' + esc(c.job_title || '') + '</td><td class="nowrap">' + hhmm(c.start_time) + '–' + hhmm(c.end_time) + '<div class="small muted">' + fmt(worked) + ' (pause ' + (c.break_min || 0) + ' min)</div></td>' +
-        '<td class="nowrap">' + esc((c.level || '') + ' / ' + (c.echelon || '')) + '<div class="small muted">' + (c.qualified ? 'qualifié' : 'basique') + '</div></td>' +
-        '<td class="n nowrap">' + euro(c.hourly_rate) + ' /h<div class="small muted">' + euro(cTotal(c)) + ' brut</div></td>' +
-        '<td><span class="pill ' + st[1] + '">' + st[0] + '</span><div class="small muted">' + esc(info) + '</div></td><td><div class="row" style="flex-wrap:nowrap">' + acts + '</div></td></tr>';
+      return '<tr' + (c.status === 'cancelled' ? ' class="muted"' : '') + '><td class="st-title"><b>' + esc(c.extra_name) + '</b>' + (c.shift_id ? ' <span class="muted small">(planning)</span>' : '') + '</td><td data-l="Date" class="nowrap">' + esc(dayShort(c.day)) + ' ' + c.day.slice(0, 4) + '</td><td data-l="Service">' + esc(svcName(c.service_id)) + '</td>' +
+        '<td data-l="Poste">' + esc(c.job_title || '—') + '</td><td data-l="Horaires" class="nowrap">' + hhmm(c.start_time) + '–' + hhmm(c.end_time) + '<div class="small muted">' + fmt(worked) + ' (pause ' + (c.break_min || 0) + ' min)</div></td>' +
+        '<td data-l="Niv. / éch." class="nowrap">' + esc((c.level || '') + ' / ' + (c.echelon || '')) + '<div class="small muted">' + (c.qualified ? 'qualifié' : 'basique') + '</div></td>' +
+        '<td data-l="Salaire" class="n nowrap">' + euro(c.hourly_rate) + ' /h<div class="small muted">' + euro(cTotal(c)) + ' brut</div></td>' +
+        '<td data-l="Statut"><div><span class="pill ' + st[1] + '">' + st[0] + '</span><div class="small muted">' + esc(info) + '</div></div></td><td class="st-acts"><div class="row" style="flex-wrap:nowrap">' + acts + '</div></td></tr>';
     }).join('');
     var seg = '<div class="seg">' + [['all', 'Tous'], ['to_sign', 'À signer'], ['signed', 'Signés'], ['cancelled', 'Annulés']].map(function (o) {
       return '<button type="button" data-act="x-filter" data-v="' + o[0] + '" aria-pressed="' + (flt === o[0]) + '">' + o[1] + '</button>';
@@ -2578,7 +2579,7 @@
       '<section class="panel"><h3 style="margin-top:0">Historique des contrats</h3>' +
       '<p class="hint">Imprimez le contrat, faites-le signer par l\'extra et par l\'établissement, puis le manager le marque « Signé » : la direction voit ici qu\'il a bien été signé par les deux parties. Un contrat signé ne se modifie plus ; aucun contrat n\'est supprimé.</p>' +
       '<div style="margin:0 0 10px">' + seg + '</div>' +
-      (rows ? '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Extra</th><th>Service</th><th>Poste</th><th>Horaires</th><th>Niv. / éch.</th><th class="n">Salaire</th><th>Statut</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      (rows ? '<div class="table-wrap stackwrap"><table class="stack"><thead><tr><th>Extra</th><th>Date</th><th>Service</th><th>Poste</th><th>Horaires</th><th>Niv. / éch.</th><th class="n">Salaire</th><th>Statut</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
         : '<div class="empty">Aucun contrat' + (flt === 'all' ? '' : ' dans ce filtre') + '.</div>') + '</section>';
   }
   function extrasRegister(extras, contracts) {
@@ -2586,18 +2587,18 @@
     var rows = list.map(function (x) {
       var miss = xMissing(x), rate = xRate(x.level, x.echelon, x.qualified), n = contracts.filter(function (c) { return c.extra_id === x.id; }).length;
       var addr = [x.address, [x.postal_code, x.city].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-      return '<tr' + (x.archived ? ' class="muted"' : '') + '><td><b>' + esc(xName(x)) + '</b>' + (x.archived ? ' <span class="pill neutral">archivé</span>' : '') + (x.phone ? '<div class="small muted">' + esc(x.phone) + '</div>' : '') + '</td>' +
-        '<td>' + (addr ? esc(addr) : '<span class="pill warn">à compléter</span>') + '</td><td>' + esc(x.job_title || '') + '</td>' +
-        '<td class="nowrap">' + (x.level && x.echelon ? esc(x.level + ' / ' + x.echelon) : '<span class="pill warn">à compléter</span>') + '</td><td>' + (x.qualified ? 'Qualifié' : 'Basique') + '</td>' +
-        '<td class="n nowrap">' + (rate ? euro(rate) + ' /h' : (x.level && x.echelon ? '<span class="pill bad">absent de la grille</span>' : '—')) + '</td>' +
-        '<td>' + esc(x.services.map(svcName).join(', ')) + '</td><td>' + (x.profile_id ? esc(name(x.profile_id)) : '<span class="muted small">—</span>') + '</td><td class="n">' + n + '</td>' +
-        '<td><div class="row" style="flex-wrap:nowrap"><button type="button" class="btn sm" data-act="x-edit" data-id="' + x.id + '">Modifier</button>' +
+      return '<tr' + (x.archived ? ' class="muted"' : '') + '><td class="st-title"><b>' + esc(xName(x)) + '</b>' + (x.archived ? ' <span class="pill neutral">archivé</span>' : '') + (x.phone ? '<div class="small muted">' + esc(x.phone) + '</div>' : '') + '</td>' +
+        '<td data-l="Adresse">' + (addr ? esc(addr) : '<span class="pill warn">à compléter</span>') + '</td><td data-l="Poste">' + esc(x.job_title || '—') + '</td>' +
+        '<td data-l="Niv. / éch." class="nowrap">' + (x.level && x.echelon ? esc(x.level + ' / ' + x.echelon) : '<span class="pill warn">à compléter</span>') + '</td><td data-l="Catégorie">' + (x.qualified ? 'Qualifié' : 'Basique') + '</td>' +
+        '<td data-l="Taux" class="n nowrap">' + (rate ? euro(rate) + ' /h' : (x.level && x.echelon ? '<span class="pill bad">absent de la grille</span>' : '—')) + '</td>' +
+        '<td data-l="Services">' + esc(x.services.map(svcName).join(', ')) + '</td><td data-l="Planning">' + (x.profile_id ? esc(name(x.profile_id)) : '<span class="muted small">—</span>') + '</td><td data-l="Contrats" class="n">' + n + '</td>' +
+        '<td class="st-acts"><div class="row" style="flex-wrap:nowrap"><button type="button" class="btn sm" data-act="x-edit" data-id="' + x.id + '">Modifier</button>' +
         (!miss.length && rate && !x.archived ? '<button type="button" class="btn sm brass" data-act="x-contract" data-extra="' + x.id + '">Contrat</button>' : '') + '</div></td></tr>';
     }).join('');
     return '<section class="panel"><h3 style="margin-top:0">Registre des extras</h3>' +
       '<p class="hint">Fiche complète (adresse, niveau, échelon) = contrat possible. Reliez la fiche à sa ligne du planning : le contrat peut alors être imprimé depuis chacun de ses shifts.</p>' +
       '<label class="row small" style="margin-bottom:10px"><input type="checkbox" data-change="x-arch"' + (showArch ? ' checked' : '') + '> Afficher les fiches archivées</label>' +
-      (rows ? '<div class="table-wrap"><table><thead><tr><th>Nom</th><th>Adresse</th><th>Poste</th><th>Niv. / éch.</th><th>Catégorie</th><th class="n">Taux</th><th>Services</th><th>Ligne du planning</th><th class="n">Contrats</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      (rows ? '<div class="table-wrap stackwrap"><table class="stack"><thead><tr><th>Nom</th><th>Adresse</th><th>Poste</th><th>Niv. / éch.</th><th>Catégorie</th><th class="n">Taux</th><th>Services</th><th>Ligne du planning</th><th class="n">Contrats</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
         : '<div class="empty">Aucun extra enregistré. « Nouvel extra » pour créer la première fiche.</div>') + '</section>';
   }
 
@@ -2791,10 +2792,11 @@
   function extraGridCard() {
     var g = (S.xgDraft || xGrid()).slice();
     if (!g.length) g.push({ level: '', echelon: '', basic: '', qualified: '' });
-    function cell(i, k, v, t) { return '<td><input type="' + (t || 'text') + '" data-xg="' + i + '.' + k + '" value="' + esc(v == null ? '' : String(v)) + '"' + (t ? ' step="0.01" min="0" inputmode="decimal" style="width:110px"' : ' maxlength="10" style="width:80px"') + '></td>'; }
+    var LBL = { level: 'Niveau', echelon: 'Échelon', basic: 'Basique €/h', qualified: 'Qualifié €/h' };
+    function cell(i, k, v, t) { return '<td data-l="' + LBL[k] + '"><input type="' + (t || 'text') + '" data-xg="' + i + '.' + k + '" value="' + esc(v == null ? '' : String(v)) + '"' + (t ? ' step="0.01" min="0" inputmode="decimal" style="width:110px"' : ' maxlength="10" style="width:80px"') + '></td>'; }
     return '<section class="panel form scard"><div class="scard-h"><span class="scard-i">' + ICON.sheet + '</span><div><h3>Grille des salaires d\'extra</h3><div class="small muted">Taux horaire brut par niveau et échelon, en basique ou en qualifié. Le taux est copié dans chaque contrat au moment où il est créé : changer la grille ne modifie pas les contrats déjà faits.</div></div></div>' +
-      '<div class="table-wrap" style="border:0"><table><thead><tr><th>Niveau</th><th>Échelon</th><th>Basique (€ / h)</th><th>Qualifié (€ / h)</th><th></th></tr></thead><tbody>' +
-      g.map(function (r, i) { return '<tr data-xg-row="' + i + '">' + cell(i, 'level', r.level) + cell(i, 'echelon', r.echelon) + cell(i, 'basic', r.basic, 'number') + cell(i, 'qualified', r.qualified, 'number') + '<td><button type="button" class="btn sm ghost danger" data-act="xg-del" data-i="' + i + '">Retirer</button></td></tr>'; }).join('') +
+      '<div class="table-wrap stackwrap" style="border:0"><table class="stack g4"><thead><tr><th>Niveau</th><th>Échelon</th><th>Basique (€ / h)</th><th>Qualifié (€ / h)</th><th></th></tr></thead><tbody>' +
+      g.map(function (r, i) { return '<tr data-xg-row="' + i + '">' + cell(i, 'level', r.level) + cell(i, 'echelon', r.echelon) + cell(i, 'basic', r.basic, 'number') + cell(i, 'qualified', r.qualified, 'number') + '<td class="st-acts"><button type="button" class="btn sm ghost danger" data-act="xg-del" data-i="' + i + '">Retirer</button></td></tr>'; }).join('') +
       '</tbody></table></div><div class="row" style="justify-content:space-between"><button type="button" class="btn sm" data-act="xg-add">Ajouter une ligne</button><button type="button" class="btn sm primary" data-act="xg-save">Enregistrer la grille</button></div></section>';
   }
   function readGrid(skip) {
@@ -3186,7 +3188,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '57';
+  var APP_VERSION = '58';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {

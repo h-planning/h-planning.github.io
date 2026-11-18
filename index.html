@@ -348,6 +348,28 @@ tr:last-child td { border-bottom: 0; }
 .emp-name span { font-size: .75rem; color: var(--ink-3); }
 .over { color: var(--bad); font-weight: 600; }
 .table-wrap td .linkish { white-space: nowrap; }
+/* tableaux « fiches » : sur téléphone, chaque ligne devient une carte (libellé à gauche, valeur à droite) */
+@media (max-width: 640px) {
+  .table-wrap.stackwrap { border: 0; background: none; overflow: visible; }
+  table.stack, table.stack tbody, table.stack tr, table.stack td { display: block; width: auto; }
+  table.stack thead { display: none; }
+  table.stack tr { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); padding: 10px 14px; margin: 0 0 10px; }
+  table.stack tr.muted { opacity: .7; }
+  table.stack td { border: 0 !important; padding: 4px 0; text-align: left !important; white-space: normal !important; }
+  table.stack td[data-l] { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: baseline; }
+  table.stack td[data-l]::before { content: attr(data-l); font-size: .7rem; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); }
+  table.stack td.st-title { font-size: 1.02rem; padding-bottom: 6px; }
+  table.stack td.st-acts { padding-top: 8px; border-top: 1px solid var(--line-soft) !important; margin-top: 6px; }
+  table.stack td.st-acts .row { flex-wrap: wrap !important; }
+  table.stack td.st-acts .btn { flex: 1 1 auto; }
+  /* variante compacte (grille des salaires) : 2 colonnes, libellé au-dessus */
+  table.stack.g4 tr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; padding: 10px 12px; }
+  table.stack.g4 td[data-l] { grid-template-columns: 1fr; gap: 2px; }
+  table.stack.g4 td { min-width: 0; }
+  table.stack.g4 td input { width: 100% !important; min-width: 0; box-sizing: border-box; }
+  table.stack.g4 td.st-acts { grid-column: 1 / -1; padding-top: 4px; margin-top: 0; }
+  #xc .dlg-f .row, #xe .dlg-f .row { flex-wrap: wrap; justify-content: flex-end; }
+}
 /* Palette à glisser + retours visuels du glisser-déposer */
 .palette { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
 .palette .pal { width: auto; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
