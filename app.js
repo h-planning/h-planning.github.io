@@ -289,7 +289,7 @@
       (S.notifOpen ? notifPanel() : '') + '</div>' +
       '<button class="icon-btn" data-act="account" aria-label="Mon compte et mot de passe">' + ICON.user + '</button>' +
       '<button class="icon-btn logout-btn" data-act="logout" aria-label="Se déconnecter" title="Se déconnecter">' + ICON.logout + '<span>Déconnexion</span></button>' +
-      '</div></header>' + demoBar() + previewBanner() +
+      '</div></header>' + demoBar() + previewBanner() + pushBanner() +
       (tabs.length ? '<div class="menu-scrim"' + (S.menuOpen ? '' : ' hidden') + ' data-act="menu-close"></div><nav id="side-menu" class="side-menu' + (S.menuOpen ? ' open' : '') + '" aria-label="Sections"' + (S.menuOpen ? '' : ' hidden') + '><div class="tabs">' + tabs.map(function (t) {
         var c = t[0] === 'demandes' && pendingCount ? '<span class="count">' + pendingCount + '</span>' : '';
         if (t[0] === 'presence') return '<button data-act="go" data-v="presence"' + (S.view === 'presence' ? ' aria-current="page"' : '') + '>' + t[2] + '<span>Présences</span></button>';
@@ -2356,7 +2356,7 @@
 
   /* ---------- Compte ---------- */
   function openAccount() {
-    var live = Store.mode === 'live', pushOk = live && feat('push') && cfg.VAPID_PUBLIC_KEY && 'serviceWorker' in navigator && 'PushManager' in window;
+    var live = Store.mode === 'live', pushOk = live && feat('push') && vapid() && 'serviceWorker' in navigator && 'PushManager' in window;
     dlg.innerHTML = '<div><div class="dlg-h"><div><div class="eyebrow">' + ROLES[S.me.role] + ' · ' + esc(svcName(S.me.service_id)) + '</div><h3>' + esc(S.me.full_name || S.me.email) + '</h3><div class="small muted">' + esc(S.me.email || '') + '</div></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div>' +
       '<div class="dlg-b"><div class="list">' +
       '<form class="item" id="pw-form" novalidate><div class="form"><div class="title">Changer de mot de passe</div>' +
@@ -2388,11 +2388,25 @@
     authView({ ok: 'Vous êtes déconnecté.' });
   }
   function b64ToBytes(b) { var p = '='.repeat((4 - b.length % 4) % 4), s = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, function (c) { return c.charCodeAt(0); }); }
+  function vapid() { return cfg.VAPID_PUBLIC_KEY || S.vapid || ''; }
+  function isIos() { return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+  function standalone() { return window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches); }
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  /* Bandeau « recevoir les alertes sur ce téléphone » : proposé tant que l'appareil n'a pas répondu (« Plus tard » = le lendemain) */
+  function pushBanner() {
+    if (Store.mode !== 'live' || S.realMe || !feat('push') || !vapid() || lsGet('hpg-push-later') === today()) return '';
+    var mobile = window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+    if (isIos() && !standalone() && !('PushManager' in window))
+      return mobile ? '<div class="banner info push-ask"><span><b>Alertes sur iPhone :</b> touchez <b>Partager</b> puis <b>Sur l\'écran d\'accueil</b>, ouvrez HPG depuis l\'icône, puis activez les alertes.</span><button type="button" class="btn sm ghost" data-act="push-later">Plus tard</button></div>' : '';
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window) || Notification.permission !== 'default') return '';
+    return '<div class="banner info push-ask"><span><b>Recevoir les alertes sur cet appareil</b> : planning publié, demande validée, échange accepté…</span><span class="row"><button type="button" class="btn sm primary" data-act="push-on">Activer</button><button type="button" class="btn sm ghost" data-act="push-later">Plus tard</button></span></div>';
+  }
   async function enablePush() {
     var perm = await Notification.requestPermission();
     if (perm !== 'granted') throw new Error('Notifications refusées. Autorisez-les dans les réglages du navigateur pour HPG.');
     var reg = await navigator.serviceWorker.ready;
-    var sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(cfg.VAPID_PUBLIC_KEY) });
+    var sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(vapid()) });
     await Store.savePush(sub);
     toast('Notifications activées sur cet appareil');
   }
@@ -2984,7 +2998,9 @@
       try { await attempt(function () { return Store.cancelSwap(b.dataset.id); }, 'Échange annulé'); render(); } catch (e) {}
     },
     'sw-approve': async function (b) { try { await attempt(function () { return Store.decideSwap(b.dataset.id, true); }, 'Échange validé : planning mis à jour'); S.cache = {}; render(); } catch (e) {} },
-    'sw-refuse': function (b) { openSwapRefuse(b.dataset.id); }
+    'sw-refuse': function (b) { openSwapRefuse(b.dataset.id); },
+    'push-on': async function () { try { await enablePush(); } catch (err) { toast(err.message, true); } render(); },
+    'push-later': function () { lsSet('hpg-push-later', today()); render(); }
   };
 
   var A = {
@@ -3287,6 +3303,7 @@
       if (S.me.must_change_pw) { S.authMode = 'firstpw'; return authView(); }
       var base = await Promise.all([Store.services(), Store.templates(), Store.profiles(), Store.settings(), Store.companies ? Store.companies().catch(function () { return []; }) : []]);
       S.services = base[0]; S.templates = base[1]; S.profiles = base[2]; S.settings = base[3] || {}; S.companies = base[4];
+      if (Store.vapidKey && !cfg.VAPID_PUBLIC_KEY) { try { S.vapid = await Store.vapidKey(); } catch (e) {} }
       applyDayTypes(); C.setRules(S.settings);
       if (!S.week) S.week = C.weekStart(today());
       var svcs = myServices();
@@ -3346,7 +3363,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '59';
+  var APP_VERSION = '60';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {

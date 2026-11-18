@@ -244,6 +244,7 @@
     },
     markExtraPrinted: async function (id) { must(await sb.from('extra_contracts').update({ printed_at: new Date().toISOString() }).eq('id', id)); },
 
+    vapidKey: async function () { var r = await sb.from('app_config').select('value').eq('key', 'vapid_public_key').maybeSingle(); return r.error || !r.data ? null : r.data.value; },
     staffMix: async function (from, to) { return must(await sb.rpc('staff_mix', { p_from: from, p_to: to })); },
     /* Échanges de shifts entre salariés (collègue puis manager/assistant) */
     swaps: async function () { return pages(function () { return sb.from('shift_swaps').select('*').order('created_at', { ascending: false }).order('id'); }); },

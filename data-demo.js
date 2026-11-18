@@ -812,7 +812,7 @@
         var m = monthOf(month);
         if (!isPublished(svc, m)) db.published.push({ service_id: svc, month: m, published_at: nowIso(), published_by: me.id });
         var ML = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-        if (notifyOn('publish')) db.profiles.forEach(function (p) { if (svcsOf(p).indexOf(svc) >= 0 && ['employee', 'assistant', 'manager'].indexOf(p.role) >= 0) notify(p.id, 'Planning publié', 'Le planning de ' + ML[+m.slice(5, 7) - 1] + ' ' + m.slice(0, 4) + ' est disponible.'); });
+        if (notifyOn('publish')) db.profiles.forEach(function (p) { if (svcsOf(p).indexOf(svc) >= 0 && ['employee', 'assistant', 'manager'].indexOf(p.role) >= 0) notify(p.id, 'Planning publié', 'Le planning ' + ((db.services.find(function (x) { return x.id === svc; }) || {}).name || '') + ' de ' + ML[+m.slice(5, 7) - 1] + ' ' + m.slice(0, 4) + ' est disponible (publié par ' + me.full_name + ').'); });
       });
     },
     unpublishMonth: function (svc, month) {

@@ -1,6 +1,7 @@
 # Installe automatiquement sur Supabase ce que Claude publie dans ce dépôt :
 #  - chaque nouveau fichier de supabase/migrations/ (exécuté une seule fois, dans l'ordre des noms)
-#  - la fonction manage-user (création des comptes)
+#  - les fonctions manage-user (création des comptes) et notify (notifications sur téléphone)
+#  - une seule fois : les clés des notifications push, créées ici et rangées dans Supabase (jamais dans le dépôt)
 # Secret nécessaire (Settings → Secrets and variables → Actions) : SUPABASE_ACCESS_TOKEN
 name: Supabase
 on:
@@ -46,3 +47,24 @@ jobs:
         with: { version: latest }
       - name: Fonction manage-user
         run: supabase functions deploy manage-user --project-ref "$PROJECT_REF" --no-verify-jwt --use-api --yes
+      - name: Notifications sur téléphone (clés créées une seule fois)
+        run: |
+          set -euo pipefail
+          q() {
+            local body; body=$(jq -n --arg q "$1" '{query: $q}')
+            local code; code=$(curl -sS -o /tmp/q.out -w '%{http_code}' -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' -d "$body")
+            if [ "$code" -ge 300 ]; then echo "::error::SQL refusé ($code)"; return 1; fi
+          }
+          supabase secrets list --project-ref "$PROJECT_REF" > /tmp/secrets.txt
+          if grep -q VAPID_PRIVATE_KEY /tmp/secrets.txt; then
+            echo "clés déjà en place"
+          else
+            npx --yes web-push@3.6.7 generate-vapid-keys --json > /tmp/v.json
+            PUB=$(jq -r .publicKey /tmp/v.json); PRIV=$(jq -r .privateKey /tmp/v.json); HOOK=$(openssl rand -hex 24); rm -f /tmp/v.json
+            echo "::add-mask::$PRIV"; echo "::add-mask::$HOOK"
+            supabase secrets set --project-ref "$PROJECT_REF" VAPID_PUBLIC_KEY="$PUB" VAPID_PRIVATE_KEY="$PRIV" VAPID_SUBJECT="mailto:paulr.rochester@gmail.com" WEBHOOK_SECRET="$HOOK" > /dev/null
+            q "select public.hpg_set_push_config('$PUB', '$HOOK')"
+            echo "clés créées"
+          fi
+          supabase functions deploy notify --project-ref "$PROJECT_REF" --no-verify-jwt --use-api --yes
