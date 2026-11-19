@@ -81,12 +81,17 @@
       requests: r[5], overtime: r[6], accruals: r[8], seniority: r[9], owed: r[10], extras: r[11], xcontracts: r[12], published: r[13], swaps: r[14], feedback: r[15],
       staffing: [].concat.apply([], vals), notifications: [], audit: [], passwords: {}, extrasSeeded: true, mirrorSeeded: true, currentUser: uid, sandboxFrom: t0, sandboxTo: t1 };
   }
-  async function enterPreview(id) {
+  /* La même copie sert à tous les comptes essayés (demande faite en salarié → visible en manager) jusqu'à « Quitter » ou « Copie neuve » */
+  async function enterPreview(id, fresh) {
     var real = S.realMe || S.me, p = (await RealStore.profiles()).find(function (x) { return x.id === id; });
     if (!p) { toast('Personne introuvable', true); return; }
     if (!window.HPGDemo) { toast('Bac à sable indisponible : rechargez la page.', true); return; }
-    toast('Préparation de la copie de test…');
-    var snap; try { snap = await sandboxSnapshot(RealStore, p.id); } catch (e) { toast('Copie impossible : ' + e.message, true); return; }
+    var snap = S.realMe && !fresh ? S.sandboxDb : null;
+    if (!snap) {
+      toast('Préparation de la copie de test…');
+      try { snap = await sandboxSnapshot(RealStore, p.id); } catch (e) { toast('Copie impossible : ' + e.message, true); return; }
+    }
+    S.sandboxDb = snap;
     S.realMe = real; Store = window.HPGDemo.create(snap, p.id); S.me = (await Store.init()) || Object.assign({}, p);
     S.sandboxRange = [snap.sandboxFrom, snap.sandboxTo];
     await reloadBase();
@@ -96,7 +101,7 @@
   }
   async function exitPreview() {
     if (!S.realMe) return;
-    S.me = S.realMe; S.realMe = null; Store = RealStore; S.sandboxRange = null; S.extras = null;
+    S.me = S.realMe; S.realMe = null; Store = RealStore; S.sandboxRange = null; S.sandboxDb = null; S.extras = null;
     try { await reloadBase(); } catch (e) {}
     S.cache = {}; S.svc = myServices()[0]; S.view = homeView();
     render(); window.scrollTo(0, 0);
@@ -119,8 +124,8 @@
       }).join('') + '</select></label>';
   }
   function previewBanner() {
-    return S.realMe ? '<div class="preview-bar" role="status"><span>Bac à sable : vous êtes <b>' + esc(S.me.full_name) + '</b> (' + esc(ROLES[S.me.role] || S.me.role) + '). Tout fonctionne, mais sur une copie : rien n\'est enregistré, aucun e-mail ni notification n\'est envoyé, tout s\'efface en quittant.' +
-      (S.sandboxRange ? ' <span class="small">Copie du ' + S.sandboxRange[0].split('-').reverse().join('/') + ' au ' + S.sandboxRange[1].split('-').reverse().join('/') + '.</span>' : '') + '</span> <button type="button" class="btn sm" data-act="preview-exit">Quitter et revenir à mon compte</button></div>' : '';
+    return S.realMe ? '<div class="preview-bar" role="status"><span>Bac à sable : vous êtes <b>' + esc(S.me.full_name) + '</b> (' + esc(ROLES[S.me.role] || S.me.role) + '). Tout fonctionne, mais sur une copie : rien n\'est enregistré, aucun e-mail ni notification n\'est envoyé. Changer de compte garde la même copie (ex. : demande en salarié, puis validation en manager) ; tout s\'efface en quittant.' +
+      (S.sandboxRange ? ' <span class="small">Copie du ' + S.sandboxRange[0].split('-').reverse().join('/') + ' au ' + S.sandboxRange[1].split('-').reverse().join('/') + '.</span>' : '') + '</span> <span class="row"><button type="button" class="btn sm ghost" data-act="preview-fresh" title="Repartir des vraies données actuelles">Copie neuve</button><button type="button" class="btn sm" data-act="preview-exit">Quitter et revenir à mon compte</button></span></div>' : '';
   }
   /* droits de l'administrateur, réglés par le développeur seul (tous accordés par défaut) */
   function adminRight(r) { return isDev() || (role() === 'admin' && rights('admin')[r] !== false); }
@@ -2999,6 +3004,7 @@
     },
     'sw-approve': async function (b) { try { await attempt(function () { return Store.decideSwap(b.dataset.id, true); }, 'Échange validé : planning mis à jour'); S.cache = {}; render(); } catch (e) {} },
     'sw-refuse': function (b) { openSwapRefuse(b.dataset.id); },
+    'preview-fresh': function () { if (S.me) enterPreview(S.me.id, true); },
     'push-on': async function () { try { await enablePush(); } catch (err) { toast(err.message, true); } render(); },
     'push-later': function () { lsSet('hpg-push-later', today()); render(); }
   };
@@ -3363,7 +3369,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '60';
+  var APP_VERSION = '61';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
