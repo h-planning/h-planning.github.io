@@ -72,3 +72,8 @@ jobs:
         run: |
           body=$(jq -n --arg q "select (select count(*) from pg_extension where extname = 'pg_net') as pg_net, (select count(*) from public.app_config where key in ('vapid_public_key','functions_url')) as config, (select count(*) from vault.secrets where name = 'hpg_webhook') as webhook, (select count(*) from public.push_subscriptions) as appareils" '{query: $q}')
           curl -sS -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' -d "$body"; echo
+      - name: Requête de lecture ponctuelle
+        if: hashFiles('supabase/queries/lecture.sql') != ''
+        run: |
+          body=$(jq -n --rawfile q supabase/queries/lecture.sql '{query: $q}')
+          curl -sS -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H 'Content-Type: application/json' -d "$body"; echo
