@@ -1850,6 +1850,7 @@
   var RIGHT_LABELS = { planning: 'Créer et modifier le planning', publish: 'Publier / dépublier la semaine', copy_week: 'Copier la semaine précédente', requests: 'Saisir et valider les demandes des salariés',
     owed: 'Jours fériés, à récupérer et à rendre', presence: 'Fiches de présence et pointage', overtime: 'Heures supplémentaires', team: 'Créer et modifier les fiches de l\'équipe',
     extras: 'Extras : registre et contrats d\'extra', extras_sign: 'Extras : marquer un contrat « signé »', journal: 'Journal des modifications (de ses services)' };
+  var ASSISTANT_RIGHTS = Object.assign({}, RIGHT_LABELS, { swaps: 'Proposer ses propres échanges de shifts à un collègue du service (validés par le manager ou l\'administrateur)' });
   var ADMIN_RIGHTS = Object.assign({}, { settings: 'Accéder aux Paramètres et les modifier', journal: 'Consulter le journal des modifications', company: 'Modifier la fiche de l\'entreprise', passwords: 'Changer les mots de passe de l\'équipe' }, null);
   var EMP_RIGHTS = { team_planning: 'Voir le planning de toute l\'équipe (mois publiés)', balances: 'Consulter ses soldes et ses demandes (CP, fériés, ancienneté, heures supp)',
     requests: 'Faire ses demandes de congés dans HPG (validées ensuite par le manager, puis la direction pour les CP)',
@@ -1858,7 +1859,7 @@
     work: { default_contract_hours: 39, break_threshold_min: 360, break_min: 30, min_rest_hours: 11 }, req: { publish_weeks_ahead: 2 },
     cp: { cp_monthly_days: 2.5, cp_credit_day: 1, cp_credit_month: 5, cp_cap: 30, cp_contracts: ['cdi', 'cdd', 'alternant'] }, ot: { contingent_hours: 360, ot_day_minutes: 450 },
     sen: { seniority_years: 5, seniority_days: 1, seniority_contracts: ['cdi', 'cdd', 'alternant'] }, pres: { prev_month_start_day: 25 },
-    rights: { rights: { manager: { planning: true, publish: true, copy_week: true, requests: true, owed: true, presence: true, overtime: true, team: true, extras: true, extras_sign: true }, assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false, extras: true, extras_sign: false }, employee: { team_planning: false, balances: true } } },
+    rights: { rights: { manager: { planning: true, publish: true, copy_week: true, requests: true, owed: true, presence: true, overtime: true, team: true, extras: true, extras_sign: true, journal: true }, assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false, extras: true, extras_sign: false, journal: true, swaps: true }, employee: { team_planning: false, balances: true } } },
     days: { day_types: {} }, notif: { notify: { publish: true, change: true, request: true, decision: true, credit: true } }, hotel: {}, rest: { rest_auto_months: 3 }
   };
   async function vSettings() {
@@ -1910,7 +1911,7 @@
         '<div><span class="eyebrow">Statuts concernés</span>' + ctChecks('data-arr="seniority_contracts"', st.seniority_contracts) + '</div>' +
         '<div class="row"><button type="button" class="btn sm" data-act="sen-recalc">Recalculer les jours d\'ancienneté</button><span class="small muted">+' + num(st.seniority_days || 1) + ' j tous les ' + (st.seniority_years || 5) + ' ans · ' + res[5].length + ' palier(s) déjà crédité(s)</span></div>', 'sen'),
       card(ICON.users, 'Droits du rôle Manager', 'Dans les services qui lui sont attribués. Il voit toujours le planning et possède son propre planning.', rightsBox('manager', RIGHT_LABELS), 'rights'),
-      card(ICON.users, 'Droits du rôle Assistant', 'Dans les services qui lui sont attribués. Il voit toujours le planning et possède son propre planning.', rightsBox('assistant', RIGHT_LABELS), 'rights'),
+      card(ICON.users, 'Droits du rôle Assistant', 'Dans les services qui lui sont attribués. Il voit toujours le planning et possède son propre planning.', rightsBox('assistant', ASSISTANT_RIGHTS), 'rights'),
       card(ICON.user, 'Droits du rôle Salarié', 'Depuis son propre compte. Il voit toujours son planning personnel (mois publiés). Il ne saisit jamais de demande.', rightsBox('employee', EMP_RIGHTS), 'rights'),
       card(ICON.sheet, 'Fiche de présence', 'En-tête et grille « mois précédent » du modèle Excel.',
         tf('company_name', 'Société (en-tête)', st.company_name) + tf('presence_hotel_label', 'Hôtel (en-tête)', st.presence_hotel_label) +
@@ -2869,13 +2870,20 @@
 
   /* ---------- ÉCHANGES DE SHIFTS ---------- */
   var SWST = { pending_peer: ['En attente du collègue', 'warn'], pending_manager: ['En attente du manager', 'warn'], approved: ['Validé', 'ok'], refused: ['Refusé', 'bad'], cancelled: ['Annulé', 'neutral'] };
-  function swapsOn() { return feat('echanges') && role() === 'employee' && empRight('swaps'); }
+  /* salarié (option « swaps » du rôle Salarié) ou assistant (droit « swaps » du rôle Assistant) */
+  function swapsOn() { return feat('echanges') && ((role() === 'employee' && empRight('swaps')) || (role() === 'assistant' && hasRight('swaps'))); }
+  /* qui peut valider : manager/assistant du service (droit planning), jamais une des deux personnes ; échange d'un assistant → manager ou administrateur */
+  function canDecideSwap(w) {
+    if (!can('planning', w.service_id) || S.me.id === w.requester_id || S.me.id === w.target_id) return false;
+    var asst = [w.requester_id, w.target_id].some(function (id) { var p = S.profiles.find(function (x) { return x.id === id; }); return p && p.role === 'assistant'; });
+    return !(asst && role() === 'assistant');
+  }
   function dmy(d) { return d ? d.split('-').reverse().join('/') : ''; }
   function swapItem(w, mode) {
     var st = SWST[w.status], a = esc(name(w.requester_id)), b = esc(name(w.target_id)), acts = '';
     if (mode === 'peer' && w.status === 'pending_peer') acts = '<button class="btn sm" data-act="sw-no" data-id="' + w.id + '">Refuser</button><button class="btn sm primary" data-act="sw-yes" data-id="' + w.id + '">Accepter</button>';
     if (mode === 'mine' && /^pending/.test(w.status)) acts = '<button class="btn sm ghost danger" data-act="sw-cancel" data-id="' + w.id + '">Annuler</button>';
-    if (mode === 'boss' && w.status === 'pending_manager' && can('planning', w.service_id)) acts = '<button class="btn sm" data-act="sw-refuse" data-id="' + w.id + '">Refuser</button><button class="btn sm primary" data-act="sw-approve" data-id="' + w.id + '">Valider l\'échange</button>';
+    if (mode === 'boss' && w.status === 'pending_manager' && canDecideSwap(w)) acts = '<button class="btn sm" data-act="sw-refuse" data-id="' + w.id + '">Refuser</button><button class="btn sm primary" data-act="sw-approve" data-id="' + w.id + '">Valider l\'échange</button>';
     return '<div class="item"><div><div class="title">' + a + ' ⇄ ' + b + '</div>' +
       '<div class="sub">' + a + ' donne : <b>' + esc(w.requester_label || '') + '</b> du ' + esc(dayLong(w.requester_day)) + '</div>' +
       '<div class="sub">' + b + ' donne : <b>' + esc(w.target_label || '') + '</b> du ' + esc(dayLong(w.target_day)) + '</div>' +
@@ -2886,12 +2894,14 @@
   }
   /* bloc « Échanges de shifts » de Mon planning (salarié) */
   async function mySwapsBlock() {
-    if (!swapsOn()) return '';
+    if (!feat('echanges')) return '';
     var list = await Store.swaps().catch(function () { return []; }), me = S.me.id;
+    // une proposition reçue s'affiche toujours, même si la personne ne peut pas elle-même proposer d'échange
+    if (!swapsOn() && !list.some(function (w) { return w.requester_id === me || w.target_id === me; })) return '';
     var inc = list.filter(function (w) { return w.target_id === me && w.status === 'pending_peer'; });
     var mine = list.filter(function (w) { return w.requester_id === me || (w.target_id === me && w.status !== 'pending_peer'); }).slice(0, 8);
     return '<section class="list" aria-label="Échanges de shifts"><h3>Échanges de shifts</h3>' +
-      '<p class="hint">Touchez un de vos jours à venir dans le calendrier pour proposer un échange à un collègue du service. Il doit accepter, puis votre manager valide.</p>' +
+      (swapsOn() ? '<p class="hint">Touchez un de vos jours à venir dans le calendrier pour proposer un échange à un collègue du service. Il doit accepter, puis ' + (role() === 'assistant' ? 'le manager (ou l\'administrateur) valide' : 'votre manager valide') + '.</p>' : '') +
       (inc.length ? inc.map(function (w) { return swapItem(w, 'peer'); }).join('') : '') +
       (mine.length ? mine.map(function (w) { return swapItem(w, w.requester_id === me ? 'mine' : 'x'); }).join('') : (inc.length ? '' : '<div class="panel empty">Aucun échange en cours.</div>')) + '</section>';
   }
@@ -2979,7 +2989,7 @@
       feat('extras') && hasRight('extras') ? Store.extraContracts({}).catch(function () { return []; }) : []]);
     var reqs = res[0].filter(function (r) { return scope.indexOf(r.service_id) >= 0; }), toDecide = reqs.filter(canDecide);
     var fromEmp = reqs.filter(function (r) { return r.created_by && r.created_by === r.employee_id; });
-    var sw = res[1].filter(function (w) { return scope.indexOf(w.service_id) >= 0; }), swBoss = sw.filter(function (w) { return w.status === 'pending_manager' && can('planning', w.service_id); }), swPeer = sw.filter(function (w) { return w.status === 'pending_peer'; });
+    var sw = res[1].filter(function (w) { return scope.indexOf(w.service_id) >= 0; }), swBoss = sw.filter(function (w) { return w.status === 'pending_manager' && canDecideSwap(w); }), swPeer = sw.filter(function (w) { return w.status === 'pending_peer'; });
     var xToSign = res[5].filter(function (c) { return c.status === 'to_sign' && scope.indexOf(c.service_id) >= 0; });
     function card(n, label, view, warn) { return '<button type="button" class="stat stat-btn" data-act="go" data-v="' + view + '"><div class="v' + (warn && n ? ' over' : '') + '">' + n + '</div><div class="l">' + label + '</div></button>'; }
     var sel = svcs.length > 1 ? '<label class="f" style="min-width:180px">Service<select data-change="db-svc"><option value="">' + (isAdmin() ? 'Tous les services' : 'Tous mes services') + '</option>' + svcs.map(function (s) { return '<option value="' + s + '"' + (S.dbSvc === s ? ' selected' : '') + '>' + esc(svcName(s)) + '</option>'; }).join('') + '</select></label>' : '';
@@ -3369,7 +3379,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '61';
+  var APP_VERSION = '62';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {

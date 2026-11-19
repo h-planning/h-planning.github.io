@@ -49,6 +49,8 @@
     return false;
   }
   function staffOf(svc) { return inCo(svc) && (isAdm() || ((role() === 'manager' || role() === 'assistant') && inMine(svc))); }
+  function swapAllowed(svc) { return role() === 'employee' ? empRight('swaps') : role() === 'assistant' ? can('swaps', svc) : false; }
+  function swapHasAssistant(r) { return [r.requester_id, r.target_id].some(function (id) { return (profile(id) || {}).role === 'assistant'; }); }
   function empRight(r) { return !!((ST().rights.employee || {})[r]); }
   function worksIn(empId, svc) { return svcsOf(profile(empId)).indexOf(svc) >= 0; }
   function anySvc(empId, test) { return svcsOf(profile(empId)).some(test); }
@@ -82,7 +84,7 @@
   /* ---------------- Données de départ ---------------- */
   var DEFAULT_RIGHTS = {
     manager: { planning: true, publish: true, copy_week: true, requests: true, owed: true, presence: true, overtime: true, team: true, journal: true },
-    assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false, journal: true },
+    assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false, journal: true, swaps: true },
     employee: { team_planning: false, balances: true }
   };
   function seed() {
@@ -475,7 +477,7 @@
     Object.keys(d.settingsBy || {}).forEach(function (k) {
       var st = d.settingsBy[k]; if (!st.extra_grid) st.extra_grid = clone(DEMO_GRID);
       var r = st.rights || (st.rights = {});
-      r.manager = Object.assign({ extras: true, extras_sign: true, journal: true }, r.manager); r.assistant = Object.assign({ extras: true, extras_sign: false, journal: true }, r.assistant);
+      r.manager = Object.assign({ extras: true, extras_sign: true, journal: true }, r.manager); r.assistant = Object.assign({ extras: true, extras_sign: false, journal: true, swaps: true }, r.assistant);
     });
     if (!d.mirrorSeeded && d.templates && d.services) {
       d.mirrorSeeded = true; var dirId = (d.templates.find(function (t) { return t.service_id === 1 && /direction/i.test(t.name); }) || {}).id;
@@ -1084,11 +1086,11 @@
     },
     swapCandidates: function (shiftId) {
       var s = db.shifts.find(function (x) { return x.id === shiftId; });
-      if (!s || s.employee_id !== me.id || !empRight('swaps')) return ok([]);
+      if (!s || s.employee_id !== me.id || !swapAllowed(s.service_id)) return ok([]);
       var lo = C.addDays(s.day, -21), hi = C.addDays(s.day, 21), tm = C.addDays(today(), 1);
       return ok(db.shifts.filter(function (o) {
         var p = profile(o.employee_id);
-        return o.service_id === s.service_id && o.employee_id !== me.id && p && p.active && p.role === 'employee' && (o.kind === 'work' || o.kind === 'repos') && !o.request_id &&
+        return o.service_id === s.service_id && o.employee_id !== me.id && p && p.active && (p.role === 'employee' || p.role === 'assistant') && (o.kind === 'work' || o.kind === 'repos') && !o.request_id &&
           !o.jour_sup && !o.jour_rendu && o.day >= (lo > tm ? lo : tm) && o.day <= hi && isPublished(o.service_id, o.day);
       }).map(function (o) { return { shift_id: o.id, employee_id: o.employee_id, full_name: profile(o.employee_id).full_name, day: o.day, kind: o.kind, start_time: o.start_time, end_time: o.end_time, label: o.label, color: o.color, template_id: o.template_id }; })
         .sort(function (a, b) { return a.day.localeCompare(b.day) || a.full_name.localeCompare(b.full_name); }));
@@ -1096,10 +1098,11 @@
     createSwap: function (shiftId, targetId, note) {
       return run(function () {
         db.swaps = db.swaps || [];
-        if (role() !== 'employee' || !empRight('swaps')) fail('Les échanges de shifts ne sont pas activés pour votre compte.');
         var a = db.shifts.find(function (x) { return x.id === shiftId; }), b = db.shifts.find(function (x) { return x.id === targetId; });
         if (!a || a.employee_id !== me.id) fail('Choisissez un de vos shifts.');
+        if (!swapAllowed(a.service_id)) fail('Les échanges de shifts ne sont pas activés pour votre compte.');
         if (!b || b.employee_id === me.id) fail("Choisissez le shift d'un collègue.");
+        if (['employee', 'assistant'].indexOf((profile(b.employee_id) || {}).role) < 0) fail("L'échange se fait avec un salarié ou un assistant du service.");
         if (a.service_id !== b.service_id) fail("L'échange se fait entre salariés du même service.");
         if (a.day <= today() || b.day <= today()) fail('Seuls les jours à venir (à partir de demain) peuvent être échangés.');
         if ([a, b].some(function (x) { return (x.kind !== 'work' && x.kind !== 'repos') || x.request_id || x.jour_sup || x.jour_rendu; })) fail('Seuls les shifts de travail et les repos peuvent être échangés (pas les congés ni les jours à rendre ou à récupérer).');
@@ -1123,9 +1126,10 @@
         var o0 = clone(r); r.peer_at = nowIso();
         if (accept) {
           r.status = 'pending_manager';
-          notify(r.requester_id, 'Échange accepté par votre collègue', me.full_name + ' a accepté l\'échange du ' + dm(r.requester_day) + '. Il attend la validation de votre manager.');
-          db.profiles.forEach(function (p) { if (p.active && (p.role === 'manager' || p.role === 'assistant') && worksIn(p.id, r.service_id) && ((ST(r.company_id).rights[p.role] || {}).planning)) notify(p.id, 'Échange de shifts à valider', profile(r.requester_id).full_name + ' et ' + me.full_name + ' : ' + dm(r.requester_day) + ' ↔ ' + dm(r.target_day) + '.'); });
-        } else { r.status = 'refused'; r.refusal_reason = 'Refusé par ' + me.full_name; notify(r.requester_id, 'Échange refusé', me.full_name + ' a refusé l\'échange du ' + dm(r.requester_day) + '.'); }
+          var asst = swapHasAssistant(r);
+          notify(r.requester_id, 'Échange accepté par ' + me.full_name, me.full_name + ' a accepté l\'échange du ' + dm(r.requester_day) + '. Il attend la validation ' + (asst ? 'du manager.' : 'de votre manager.'));
+          db.profiles.forEach(function (p) { if (p.active && p.id !== r.requester_id && p.id !== r.target_id && (p.role === 'manager' || (p.role === 'assistant' && !asst)) && worksIn(p.id, r.service_id) && ((ST(r.company_id).rights[p.role] || {}).planning)) notify(p.id, 'Échange de shifts à valider', profile(r.requester_id).full_name + ' et ' + me.full_name + ' : ' + dm(r.requester_day) + ' ↔ ' + dm(r.target_day) + '.'); });
+        } else { r.status = 'refused'; r.refusal_reason = 'Refusé par ' + me.full_name; notify(r.requester_id, 'Échange refusé par ' + me.full_name, me.full_name + ' a refusé l\'échange du ' + dm(r.requester_day) + '.'); }
         audit('shift_swaps', r, 'UPDATE', o0); return r;
       });
     },
@@ -1143,6 +1147,8 @@
       return run(function () {
         var r = (db.swaps || []).find(function (w) { return w.id === id; });
         if (!r || !can('planning', r.service_id)) fail('Vous ne pouvez pas valider cet échange.');
+        if (me.id === r.requester_id || me.id === r.target_id) fail('Vous ne pouvez pas valider un échange dont vous faites partie.');
+        if (role() === 'assistant' && swapHasAssistant(r)) fail("Un échange qui concerne un assistant est validé par le manager ou l'administrateur.");
         if (r.status !== 'pending_manager') fail("Cet échange n'attend pas de validation.");
         var o0 = clone(r);
         if (!approve) {
