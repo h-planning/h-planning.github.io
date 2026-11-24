@@ -612,6 +612,20 @@ main.wide { max-width: 1560px; }
 .pr-table td.obs.yel { background: #FFF59D; color: #111; }
 .pr-table th.c, .pr-table td.c { width: 34px; }
 @media (max-width: 860px) { .fp-cols { grid-template-columns: 1fr; } }
+/* Ordinateur : tout le tableau tient dans la page, sans barre de défilement horizontale */
+@media (min-width: 761px) {
+  .table-wrap { overflow-x: visible; }
+  .table-wrap > table { width: 100%; }
+  .pr-table { min-width: 0; }
+  .pr-table td.obs { min-width: 110px; }
+  .table-wrap th { white-space: normal; }
+  .table-wrap td .linkish { white-space: normal; }
+}
+@media (min-width: 761px) and (max-width: 1279px) {
+  .table-wrap table { font-size: .8rem; }
+  .table-wrap th, .table-wrap td { padding: 6px 6px; }
+  .table-wrap th { font-size: .66rem; letter-spacing: .03em; }
+}
 /* Windows « thèmes de contraste » (fond noir forcé) : le navigateur impose ses couleurs ; on garde les contours pour que chaque case reste lisible */
 @media (forced-colors: active) {
   .chip, .mchip, .pill, .stat, .btn, .panel, .item, .cal-day, .count, .banner, input, select, textarea { border: 1px solid CanvasText !important; }

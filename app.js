@@ -3420,7 +3420,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '64';
+  var APP_VERSION = '65';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
