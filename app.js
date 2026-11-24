@@ -1517,10 +1517,10 @@
   async function vValidate() {
     var res = await Promise.all([Store.requests(), Store.profiles(), feat('echanges') ? Store.swaps().catch(function () { return []; }) : []]), all = res[0];
     S.profiles = res[1];
-    var swBoss = res[2].filter(function (w) { return w.status === 'pending_manager' && canDecideSwap(w); }), swPeer = res[2].filter(function (w) { return w.status === 'pending_peer' && can('planning', w.service_id); });
-    var swHtml = feat('echanges') ? '<section class="list" id="echanges"><h3>Échanges de shifts à valider <span class="muted small">(' + swBoss.length + ')</span></h3>' +
-      (swBoss.length ? swBoss.map(function (w) { return swapItem(w, 'boss'); }).join('') : '<div class="panel empty">Aucun échange à valider. Quand deux salariés se mettent d\'accord, l\'échange arrive ici.</div>') +
-      (swPeer.length ? '<p class="hint">' + pl(swPeer.length, 'Un échange attend', swPeer.length + ' échanges attendent') + ' encore la réponse du collègue.</p>' : '') + '</section>' : '';
+    var swBoss = res[2].filter(function (w) { return w.status === 'pending_manager' && canDecideSwap(w); }), swPeer = res[2].filter(function (w) { return w.status === 'pending_peer' && canDecideSwap(w); });
+    var swHtml = feat('echanges') ? '<section class="list" id="echanges"><h3>Échanges de shifts <span class="muted small">(' + swBoss.length + ' à valider' + (swPeer.length ? ', ' + swPeer.length + ' en attente du collègue' : '') + ')</span></h3>' +
+      (swBoss.length + swPeer.length ? swBoss.concat(swPeer).map(function (w) { return swapItem(w, 'boss'); }).join('') : '<div class="panel empty">Aucun échange en cours. Dès qu\'un salarié en propose un, il apparaît ici.</div>') +
+      '</section>' : '';
     var mineToDo = all.filter(canDecide);
     var rest = all.filter(function (r) { return mineToDo.indexOf(r) < 0 && r.employee_id !== S.me.id; }).slice(0, 40);
     var otB = {};
@@ -2891,12 +2891,14 @@
     var st = SWST[w.status], a = esc(name(w.requester_id)), b = esc(name(w.target_id)), acts = '';
     if (mode === 'peer' && w.status === 'pending_peer') acts = '<button class="btn sm" data-act="sw-no" data-id="' + w.id + '">Refuser</button><button class="btn sm primary" data-act="sw-yes" data-id="' + w.id + '">Accepter</button>';
     if (mode === 'mine' && /^pending/.test(w.status)) acts = '<button class="btn sm ghost danger" data-act="sw-cancel" data-id="' + w.id + '">Annuler</button>';
+    if (mode === 'boss' && w.status === 'pending_peer' && canDecideSwap(w)) acts = '<button class="btn sm primary" type="button" disabled title="Le collègue doit d\'abord accepter">Valider l\'échange</button>';
     if (mode === 'boss' && w.status === 'pending_manager' && canDecideSwap(w)) acts = '<button class="btn sm" data-act="sw-refuse" data-id="' + w.id + '">Refuser</button><button class="btn sm primary" data-act="sw-approve" data-id="' + w.id + '">Valider l\'échange</button>';
     return '<div class="item"><div><div class="title">' + a + ' ⇄ ' + b + '</div>' +
       '<div class="sub">' + a + ' donne : <b>' + esc(w.requester_label || '') + '</b> du ' + esc(dayLong(w.requester_day)) + '</div>' +
       '<div class="sub">' + b + ' donne : <b>' + esc(w.target_label || '') + '</b> du ' + esc(dayLong(w.target_day)) + '</div>' +
       (w.note ? '<div class="sub">« ' + esc(w.note) + ' »</div>' : '') + (w.refusal_reason ? '<div class="sub" style="color:var(--bad)">' + esc(w.refusal_reason) + '</div>' : '') +
       (mode === 'boss' ? '<div class="sub muted">' + esc(svcName(w.service_id)) + ' · demandé le ' + stamp(new Date(w.created_at)) + '</div>' : '') +
+      (mode === 'boss' && w.status === 'pending_peer' ? '<div class="sub" style="color:var(--warn)">' + b + ' n\'a pas encore répondu : vous pourrez valider dès qu\'il aura accepté.</div>' : '') +
       '<div class="steps"><span class="on">' + a + '</span><span>→</span><span class="' + (w.peer_at && w.status !== 'refused' ? 'on' : w.status === 'pending_peer' ? 'cur' : '') + '">' + b + '</span><span>→</span><span class="' + (w.status === 'approved' ? 'on' : w.status === 'pending_manager' ? 'cur' : '') + '">Manager</span></div></div>' +
       '<div class="acts"><span class="pill ' + st[1] + '">' + st[0] + '</span>' + acts + '</div></div>';
   }
@@ -2918,15 +2920,30 @@
     if (!sh) return;
     var cands = [];
     try { cands = await Store.swapCandidates(shiftId); } catch (e) { toast(e.message, true); return; }
+    var people = [], seen = {};
+    cands.forEach(function (c) { if (!seen[c.employee_id]) { seen[c.employee_id] = 1; people.push({ id: c.employee_id, name: c.full_name }); } });
+    people.sort(function (a, b) { return a.name.localeCompare(b.name, 'fr'); });
+    function shiftOpts(pid) {
+      var groups = {}, order = [];
+      cands.filter(function (c) { return c.employee_id === pid; }).sort(function (a, b) { return a.day < b.day ? -1 : a.day > b.day ? 1 : 0; }).forEach(function (c) {
+        var k = c.day.slice(0, 7); if (!groups[k]) { groups[k] = []; order.push(k); } groups[k].push(c);
+      });
+      return order.map(function (k) {
+        var lbl = MOIS_L[+k.slice(5, 7) - 1]; lbl = lbl.charAt(0).toUpperCase() + lbl.slice(1) + ' ' + k.slice(0, 4);
+        return '<optgroup label="' + esc(lbl) + '">' + groups[k].map(function (c) {
+          return '<option value="' + c.shift_id + '"' + (c.day === sh.day ? ' selected' : '') + '>' + esc(dayShort(c.day) + ' · ' + (c.kind === 'work' ? (c.label || 'Travail') + ' ' + hhmm(c.start_time) + '–' + hhmm(c.end_time) : 'Repos')) + '</option>';
+        }).join('') + '</optgroup>';
+      }).join('');
+    }
     var mineLbl = sh.kind === 'work' ? (sh.label || 'Travail') + ' ' + hhmm(sh.start_time) + '–' + hhmm(sh.end_time) : 'Repos';
     dlg.innerHTML = '<form id="swf" class="form" novalidate><div class="dlg-h"><div><div class="eyebrow">Échange de shift</div><h3>' + esc(dayLong(sh.day)) + ' · ' + esc(mineLbl) + '</h3></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b">' +
-      (cands.length ? '<label class="f">Contre le jour d\'un collègue<select id="sw-t">' + cands.map(function (c) {
-        return '<option value="' + c.shift_id + '">' + esc(dayShort(c.day) + ' · ' + c.full_name + ' · ' + (c.kind === 'work' ? (c.label || 'Travail') + ' ' + hhmm(c.start_time) + '–' + hhmm(c.end_time) : 'Repos')) + '</option>';
-      }).join('') + '</select></label><label class="f">Message pour votre collègue (facultatif)<input type="text" id="sw-n" maxlength="300"></label>' +
+      (cands.length ? '<label class="f">1. Le collègue<select id="sw-p">' + people.map(function (p) { return '<option value="' + p.id + '">' + esc(p.name) + '</option>'; }).join('') + '</select></label>' +
+        '<label class="f">2. Son shift (classés par mois)<select id="sw-t"></select></label><label class="f">Message pour votre collègue (facultatif)<input type="text" id="sw-n" maxlength="300"></label>' +
         '<p class="small muted" style="margin:0">Astuce : si vous choisissez le <b>repos</b> d\'un collègue le même jour, il travaille à votre place et vous êtes en repos. Votre collègue accepte, puis votre manager valide. Le planning change seulement après cette validation.</p>'
         : '<div class="banner info">Aucun collègue n\'a de jour échangeable dans les 3 semaines autour de cette date. Seuls les jours publiés, à partir de demain, sont proposés.</div>') +
       '<div class="err" id="sw-err" role="alert"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button>' + (cands.length ? '<button class="btn primary" type="submit">Proposer l\'échange</button>' : '') + '</div></div></form>';
     var f = dlg.querySelector('#swf');
+    if (cands.length) { var selP = f.querySelector('#sw-p'), selT = f.querySelector('#sw-t'); selT.innerHTML = shiftOpts(selP.value); selP.addEventListener('change', function () { selT.innerHTML = shiftOpts(selP.value); }); }
     f.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) dlg.close(); });
     f.addEventListener('submit', async function (e) {
       e.preventDefault();
@@ -3012,15 +3029,15 @@
       feat('extras') && hasRight('extras') ? Store.extraContracts({}).catch(function () { return []; }) : []]);
     var reqs = res[0].filter(function (r) { return scope.indexOf(r.service_id) >= 0; }), toDecide = reqs.filter(canDecide);
     var fromEmp = reqs.filter(function (r) { return r.created_by && r.created_by === r.employee_id; });
-    var sw = res[1].filter(function (w) { return scope.indexOf(w.service_id) >= 0; }), swBoss = sw.filter(function (w) { return w.status === 'pending_manager' && canDecideSwap(w); }), swPeer = sw.filter(function (w) { return w.status === 'pending_peer'; });
+    var sw = res[1].filter(function (w) { return scope.indexOf(w.service_id) >= 0; }), swBoss = sw.filter(function (w) { return w.status === 'pending_manager' && canDecideSwap(w); }), swPeer = sw.filter(function (w) { return w.status === 'pending_peer' && canDecideSwap(w); });
     var xToSign = res[5].filter(function (c) { return c.status === 'to_sign' && scope.indexOf(c.service_id) >= 0; });
     function card(n, label, view, warn) { return '<button type="button" class="stat stat-btn" data-act="go" data-v="' + view + '"><div class="v' + (warn && n ? ' over' : '') + '">' + n + '</div><div class="l">' + label + '</div></button>'; }
     var sel = svcs.length > 1 ? '<label class="f" style="min-width:180px">Service<select data-change="db-svc"><option value="">' + (isAdmin() ? 'Tous les services' : 'Tous mes services') + '</option>' + svcs.map(function (s) { return '<option value="' + s + '"' + (S.dbSvc === s ? ' selected' : '') + '>' + esc(svcName(s)) + '</option>'; }).join('') + '</select></label>' : '';
     return '<div class="page-head"><div><div class="eyebrow">' + esc(S.dbSvc ? svcName(S.dbSvc) : (isAdmin() ? coName() : scope.map(svcName).join(' · '))) + '</div><h2>Tableau de bord</h2></div><div class="row">' + sel + '</div></div>' +
       '<div class="stats">' + (feat('demandes') && (hasRight('requests') || isAdmin()) ? card(toDecide.length, pl(toDecide.length, 'demande de congé à valider', 'demandes de congé à valider'), 'demandes', true) + card(fromEmp.filter(function (r) { return /^pending/.test(r.status); }).length, 'demandes des salariés en attente de réponse', 'demandes') : '') +
-      (feat('echanges') ? card(swBoss.length, pl(swBoss.length, 'échange de shifts à valider', 'échanges de shifts à valider'), feat('demandes') && (hasRight('requests') || isAdmin()) ? 'demandes' : 'tableau', true) + card(swPeer.length, pl(swPeer.length, 'échange en attente du collègue', 'échanges en attente du collègue'), 'tableau') : '') +
+      (feat('echanges') ? card(swBoss.length, pl(swBoss.length, 'échange de shifts à valider', 'échanges de shifts à valider'), feat('demandes') && (hasRight('requests') || isAdmin()) ? 'demandes' : 'tableau', true) + card(swPeer.length, pl(swPeer.length, 'échange en attente du collègue', 'échanges en attente du collègue'), feat('demandes') && (hasRight('requests') || isAdmin()) ? 'demandes' : 'tableau') : '') +
       (feat('extras') && hasRight('extras') ? card(xToSign.length, pl(xToSign.length, 'contrat d\'extra à signer', 'contrats d\'extra à signer'), 'extras', true) : '') + '</div>' +
-      (swBoss.length ? '<section class="list"><h3>Échanges de shifts à valider</h3>' + swBoss.map(function (w) { return swapItem(w, 'boss'); }).join('') + '</section>' : '') +
+      (swBoss.length + swPeer.length ? '<section class="list"><h3>Échanges de shifts</h3>' + swBoss.concat(swPeer).map(function (w) { return swapItem(w, 'boss'); }).join('') + '</section>' : '') +
       (toDecide.length ? '<section class="list"><h3>Demandes à valider <button type="button" class="linkish small" data-act="go" data-v="demandes">tout voir</button></h3>' + toDecide.slice(0, 5).map(function (r) { return requestItem(r, true); }).join('') + '</section>' : '') +
       (fromEmp.filter(function (r) { return toDecide.indexOf(r) < 0; }).length ? '<section class="list"><h3>Dernières demandes reçues des salariés <span class="muted small">(hors « à valider »)</span></h3>' + fromEmp.filter(function (r) { return toDecide.indexOf(r) < 0; }).slice(0, 6).map(function (r) { return requestItem(r, true); }).join('') + '</section>' : '') +
       (swPeer.length || sw.some(function (w) { return !/^pending/.test(w.status); }) ? '<section class="list"><h3>Échanges récents</h3>' + sw.filter(function (w) { return w.status !== 'pending_manager'; }).slice(0, 6).map(function (w) { return swapItem(w, 'x'); }).join('') + '</section>' : '') +
@@ -3403,7 +3420,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '63';
+  var APP_VERSION = '64';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
