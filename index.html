@@ -21,8 +21,8 @@
 /* Registre de la loge : papier, encre marine, une touche de laiton. Barre fixe en haut, onglets en bas sur téléphone. */
 :root {
   --bg: #F4F4EF; --surface: #FFFFFF; --sunk: #EBEBE4; --line: #D9DAD1; --line-soft: #E6E6DF; --grid: #BDBFB4;
-  --ink: #1B2433; --ink-2: #4A5363; --ink-3: #7A8291;
-  --brass: #946519; --brass-soft: #F3E6CC; --on-brass: #FFFFFF;
+  --ink: #1B2433; --ink-2: #4A5363; --ink-3: #5F6775;
+  --brass: #80561A; --brass-soft: #F3E6CC; --on-brass: #FFFFFF;
   --ok: #1F6B45; --ok-soft: #DCEFE3; --warn: #8A5A00; --warn-soft: #FBEBC7; --bad: #9B2C22; --bad-soft: #F7DEDA;
   --s-open-bg: #C2410C; --s-open-fg: #FFFFFF;   /* ouverture : orange foncé */
   --s-am-bg: #166534;   --s-am-fg: #FFFFFF;     /* matin : vert foncé */
@@ -46,7 +46,7 @@
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #12161D; --surface: #1A1F28; --sunk: #222833; --line: #2E3542; --line-soft: #262C37; --grid: #434B59;
-  --ink: #E8EAEE; --ink-2: #B4BAC5; --ink-3: #8790A0;
+  --ink: #E8EAEE; --ink-2: #B4BAC5; --ink-3: #9AA3B2;
   --brass: #D9A54B; --brass-soft: #3A2F1B; --on-brass: #1A1206;
   --ok: #6FCF9A; --ok-soft: #173326; --warn: #E8B54D; --warn-soft: #3A2E12; --bad: #F08A7E; --bad-soft: #3E1D1A;
   --s-open-bg: #C2410C; --s-open-fg: #FFFFFF; --s-am-bg: #17703A; --s-am-fg: #FFFFFF;
@@ -59,7 +59,7 @@
   color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #12161D; --surface: #1A1F28; --sunk: #222833; --line: #2E3542; --line-soft: #262C37; --grid: #434B59;
-  --ink: #E8EAEE; --ink-2: #B4BAC5; --ink-3: #8790A0;
+  --ink: #E8EAEE; --ink-2: #B4BAC5; --ink-3: #9AA3B2;
   --brass: #D9A54B; --brass-soft: #3A2F1B; --on-brass: #1A1206;
   --ok: #6FCF9A; --ok-soft: #173326; --warn: #E8B54D; --warn-soft: #3A2E12; --bad: #F08A7E; --bad-soft: #3E1D1A;
   --s-open-bg: #C2410C; --s-open-fg: #FFFFFF; --s-am-bg: #17703A; --s-am-fg: #FFFFFF;
@@ -131,7 +131,7 @@ table.owsplit th.ow-plus { background: #DFF3E4; color: #1B6B33; text-align: cent
 table.owsplit tfoot td { background: var(--sunk); }
 table.owsplit tr.ow-emp th { background: var(--sunk); text-transform: none; letter-spacing: 0; font-size: .85rem; color: var(--ink); padding: 6px 8px; border-top: 2px solid var(--ink-3); }
 table.owsplit.ferie { min-width: 620px; }
-table.owsplit .neg { color: var(--bad); } table.owsplit .pos { color: #1B6B33; }
+table.owsplit .neg { color: var(--bad); } table.owsplit .pos { color: var(--ok); }
 :root[data-theme="dark"] table.owsplit th.ow-minus { background: #4A1F1C; color: #F6B3AC; }
 :root[data-theme="dark"] table.owsplit th.ow-plus { background: #1B3A25; color: #A8E3B8; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) table.owsplit th.ow-minus { background: #4A1F1C; color: #F6B3AC; } :root:not([data-theme="light"]) table.owsplit th.ow-plus { background: #1B3A25; color: #A8E3B8; } }
@@ -432,7 +432,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .mchip.xp::after { right: 1px; background: #FFD43B; }
 .mchip.ot::before { left: 1px; background: #FFFFFF; box-shadow: 0 0 0 1px #9B2C22; }
 /* Lettres du planning mensuel */
-.mchip.k-m-open { background: #FF9F0A; color: #D00000; font-family: var(--f-body); font-weight: 800; font-size: .8rem; }
+.mchip.k-m-open { background: #FF9F0A; color: #8B0000; font-family: var(--f-body); font-weight: 800; font-size: .8rem; }
 .mchip.k-m-am { background: #8EE5A6; color: #000000; font-family: var(--f-body); font-weight: 800; font-size: .8rem; }
 .mchip.k-m-pm { background: #FF3EB5; color: #000000; font-family: var(--f-body); font-weight: 800; font-size: .8rem; }
 .mchip.k-m-night { background: #1E3A8A; color: #FFFFFF; font-family: var(--f-body); font-weight: 800; font-size: .8rem; }
@@ -603,7 +603,7 @@ main.wide { max-width: 1560px; }
 .fp { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 12px; }
 .fp-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .fp-co { text-align: right; font-size: .85rem; }
-.fp-red { color: #B91C1C; }
+.fp-red { color: var(--bad); }
 .fp-id { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .fp-id > div { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 2px; }
 .fp-cols { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; align-items: start; }
@@ -612,6 +612,14 @@ main.wide { max-width: 1560px; }
 .pr-table td.obs.yel { background: #FFF59D; color: #111; }
 .pr-table th.c, .pr-table td.c { width: 34px; }
 @media (max-width: 860px) { .fp-cols { grid-template-columns: 1fr; } }
+/* Windows « thèmes de contraste » (fond noir forcé) : le navigateur impose ses couleurs ; on garde les contours pour que chaque case reste lisible */
+@media (forced-colors: active) {
+  .chip, .mchip, .pill, .stat, .btn, .panel, .item, .cal-day, .count, .banner, input, select, textarea { border: 1px solid CanvasText !important; }
+  .btn.primary, .btn.brass, .nav a[aria-current], .nav button[aria-current], .tab.on, [aria-selected="true"] { outline: 2px solid Highlight; outline-offset: 1px; }
+  .chip[data-act="sw-new"] { outline: 2px dashed Highlight; }
+  .today, .cal-day.today { outline: 2px solid Highlight; }
+  svg { forced-color-adjust: auto; }
+}
 </style>
 <!--/STYLE-->
 </head>

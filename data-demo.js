@@ -85,7 +85,7 @@
   var DEFAULT_RIGHTS = {
     manager: { planning: true, publish: true, copy_week: true, requests: true, owed: true, presence: true, overtime: true, team: true, journal: true },
     assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false, journal: true, swaps: true },
-    employee: { team_planning: false, balances: true }
+    employee: { team_planning: false, balances: true, swaps: true }
   };
   function seed() {
     var T = [
@@ -359,7 +359,7 @@
     }
     if (row.kind === 'work' && row.jour_sup && !(old && old.jour_sup)) {
       var owe = db.owed.filter(function (x) { return x.employee_id === row.employee_id && x.type === 'rendre' && !x.rendered_shift_id; }).reduce(function (a, x) { return a + x.days; }, 0);
-      if (owe > 0) fail('Ce salarié a encore ' + owe + ' jour(s) à rendre : cochez « Jour rendu » au lieu de « Jour supplémentaire à récupérer ».');
+      if (owe > 0) fail('Ce salarié a encore ' + owe + ' jour' + (owe > 1 ? 's' : '') + ' à rendre : cochez « Jour rendu » au lieu de « Jour supplémentaire à récupérer ».');
     }
     var same = old && old.employee_id === row.employee_id && old.kind === row.kind && old.day === row.day, p = profile(row.employee_id), bal;
     if (row.kind === 'cp' && !row.request_id && isOuvr(row.day) && !same) {
@@ -478,7 +478,10 @@
       var st = d.settingsBy[k]; if (!st.extra_grid) st.extra_grid = clone(DEMO_GRID);
       var r = st.rights || (st.rights = {});
       r.manager = Object.assign({ extras: true, extras_sign: true, journal: true }, r.manager); r.assistant = Object.assign({ extras: true, extras_sign: false, journal: true, swaps: true }, r.assistant);
+      // v63 : échanges de shifts activés pour les salariés (une seule fois)
+      if (!d.empSwapsV63) r.employee = Object.assign({}, r.employee, { swaps: true });
     });
+    d.empSwapsV63 = true;
     if (!d.mirrorSeeded && d.templates && d.services) {
       d.mirrorSeeded = true; var dirId = (d.templates.find(function (t) { return t.service_id === 1 && /direction/i.test(t.name); }) || {}).id;
       if (!d.templates.some(function (t) { return t.service_id === 1 && /direction/i.test(t.name); })) d.templates.push({ id: (dirId = Math.max.apply(null, d.templates.map(function (t) { return t.id; }).concat(0)) + 1), company_id: 1, service_id: 1, name: 'Direction', start_time: '09:00', end_time: '17:18', color: 'mid', sort: 9, active: true, label: 'DIR', bg: '#1B2433', fg: '#FFFFFF' });

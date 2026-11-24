@@ -109,7 +109,7 @@ create table public.settings (
   rights jsonb not null default '{
     "manager":   {"planning":true,"publish":true,"copy_week":true,"requests":true,"owed":true,"presence":true,"overtime":true,"team":true,"extras":true,"extras_sign":true},
     "assistant": {"planning":true,"publish":false,"copy_week":true,"requests":false,"owed":false,"presence":false,"overtime":false,"team":false,"extras":true,"extras_sign":false},
-    "employee":  {"team_planning":false,"balances":true}}',
+    "employee":  {"team_planning":false,"balances":true,"swaps":true}}',
   notify jsonb not null default '{"publish":true,"change":true,"request":true,"decision":true,"credit":true}',
   developer_email text not null default 'paulr.rochester@gmail.com',  -- ce compte devient « Développeur » à sa création
   require_email_code boolean not null default false,
@@ -1633,7 +1633,7 @@ alter table public.settings add column if not exists extra_grid jsonb not null d
 alter table public.settings alter column rights set default '{
     "manager":   {"planning":true,"publish":true,"copy_week":true,"requests":true,"owed":true,"presence":true,"overtime":true,"team":true,"extras":true,"extras_sign":true,"journal":true},
     "assistant": {"planning":true,"publish":false,"copy_week":true,"requests":false,"owed":false,"presence":false,"overtime":false,"team":false,"extras":true,"extras_sign":false,"journal":true},
-    "employee":  {"team_planning":false,"balances":true}}';
+    "employee":  {"team_planning":false,"balances":true,"swaps":true}}';
 update public.settings set rights = rights
   || jsonb_build_object('manager', '{"extras":true,"extras_sign":true}'::jsonb || coalesce(rights -> 'manager', '{}'))
   || jsonb_build_object('assistant', '{"extras":true,"extras_sign":false}'::jsonb || coalesce(rights -> 'assistant', '{}'));
@@ -1865,7 +1865,7 @@ update public.settings set rights = rights
 alter table public.settings alter column rights set default '{
     "manager":   {"planning":true,"publish":true,"copy_week":true,"requests":true,"owed":true,"presence":true,"overtime":true,"team":true,"extras":true,"extras_sign":true,"journal":true},
     "assistant": {"planning":true,"publish":false,"copy_week":true,"requests":false,"owed":false,"presence":false,"overtime":false,"team":false,"extras":true,"extras_sign":false,"journal":true,"swaps":true},
-    "employee":  {"team_planning":false,"balances":true}}';
+    "employee":  {"team_planning":false,"balances":true,"swaps":true}}';
 
 create or replace function public.audit_entries(p_limit int default 200)
 returns table (at timestamptz, actor_name text, table_name text, action text, row_id text, old_data jsonb, new_data jsonb)

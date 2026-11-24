@@ -40,6 +40,8 @@
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function today() { var d = new Date(); return C.iso(new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))); }
+  /* accord singulier/pluriel (0 et 1 au singulier, comme en français) */
+  function pl(n, one, many) { return Math.abs(+n || 0) >= 2 ? many : one; }
   function dayShort(s) { var d = C.parseDate(s); return JOURS[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MOIS[d.getUTCMonth()]; }
   function dayLong(s) { var d = C.parseDate(s); return JOURS_L[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MOIS[d.getUTCMonth()]; }
   function isoWeek(s) { var d = C.parseDate(s); d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7)); var y = new Date(Date.UTC(d.getUTCFullYear(), 0, 1)); return Math.ceil(((d - y) / 864e5 + 1) / 7); }
@@ -84,8 +86,8 @@
   /* La même copie sert à tous les comptes essayés (demande faite en salarié → visible en manager) jusqu'à « Quitter » ou « Copie neuve » */
   async function enterPreview(id, fresh) {
     var real = S.realMe || S.me, p = (await RealStore.profiles()).find(function (x) { return x.id === id; });
-    if (!p) { toast('Personne introuvable', true); return; }
-    if (!window.HPGDemo) { toast('Bac à sable indisponible : rechargez la page.', true); return; }
+    if (!p) { toast('Cette personne n\'existe plus.', true); return; }
+    if (!window.HPGDemo) { toast('Le mode test n\'a pas pu démarrer. Rechargez la page.', true); return; }
     var snap = S.realMe && !fresh ? S.sandboxDb : null;
     if (!snap) {
       toast('Préparation de la copie de test…');
@@ -303,7 +305,7 @@
       '<main id="main"' + ((S.view === 'planning' && isBoss()) || S.view === 'equipe-planning' || S.view === 'parametres' || S.view === 'extras' ? ' class="wide"' : '') + '>' + inner + '</main>';
   }
   function notifPanel() {
-    if (!S.notifs.length) return '<div class="notif-panel"><div class="empty">Aucune notification.</div></div>';
+    if (!S.notifs.length) return '<div class="notif-panel"><div class="empty">Rien de nouveau pour le moment.</div></div>';
     return '<div class="notif-panel">' + S.notifs.map(function (n) {
       var d = new Date(n.created_at);
       return '<div class="n' + (n.read_at ? '' : ' unread') + '"><b>' + esc(n.title) + '</b><p>' + esc(n.body) + '</p><time>' +
@@ -339,7 +341,7 @@
       if (seq !== renderSeq) return;
       app.innerHTML = shell(html, pc);
     } catch (e) {
-      app.innerHTML = shell('<div class="banner warn">Impossible de charger cette page : ' + esc(e.message) + '</div>');
+      app.innerHTML = shell('<div class="banner warn">Cette page n\'a pas pu s\'afficher. Rechargez-la ; si le problème continue, signalez-le dans « Bugs et améliorations ». Détail : ' + esc(e.message) + '</div>');
     }
   }
   async function refreshNotifs() { try { S.notifs = await Store.notifications(); } catch (e) {} }
@@ -612,7 +614,7 @@
   function hasRule(cfg) { return !!((cfg.tiers || []).length || cfg.base != null || (cfg.min_staff != null && cfg.min_staff !== '')); }
   /* chambres restant à faire = total à faire − chambres des shifts posés ce jour-là (option « rooms_left ») */
   function roomsLeft(cfg, d, get, done) { var t = staffTotal(cfg, get(d) || {}, get(C.addDays(d, -1)) || {}); return t == null ? null : t - (done || 0); }
-  function roomsCell(rem, d) { return '<td class="cnt' + (rem != null && rem > 0 ? ' short' : rem != null && rem < 0 ? ' extra' : '') + '" data-rem-day="' + d + '"' + (rem != null ? ' title="' + (rem > 0 ? rem + ' chambre(s) sans personne pour les faire' : rem < 0 ? 'capacité supérieure de ' + (-rem) + ' chambre(s)' : 'toutes les chambres sont couvertes') + '"' : '') + '><b>' + (rem == null ? '' : rem) + '</b></td>'; }
+  function roomsCell(rem, d) { return '<td class="cnt' + (rem != null && rem > 0 ? ' short' : rem != null && rem < 0 ? ' extra' : '') + '" data-rem-day="' + d + '"' + (rem != null ? ' title="' + (rem > 0 ? rem + pl(rem, ' chambre sans personne pour la faire', ' chambres sans personne pour les faire') : rem < 0 ? 'de quoi faire ' + (-rem) + pl(-rem, ' chambre de plus', ' chambres de plus') : 'toutes les chambres sont couvertes') + '"' : '') + '><b>' + (rem == null ? '' : rem) + '</b></td>'; }
   function hasTotalRow(cfg) { return cfg.combine === 'formula' || (cfg.combine === 'sum' && cfg.inputs.length > 1); }
   function totalLabel(cfg) { return cfg.combine === 'formula' ? ((cfg.total || {}).label || 'Total') : 'Total'; }
   function prevCarry(cfg, prev) { return cfg.combine === 'formula' ? ((cfg.total || {}).prev || []).reduce(function (a, k) { return a + (+(prev || {})[k] || 0); }, 0) : 0; }
@@ -633,12 +635,12 @@
     return { n: base + (livr ? 1 : 0), base: base, livr: livr };
   }
   function reqLabel(r) { return r == null ? '' : r.livr ? r.base + '+1' : String(r.n); }
-  function staffTitle(n, req) { return req == null ? '' : n + ' présent(s) pour ' + req + ' requis' + (n < req ? ' : il manque ' + (req - n) + ' personne(s)' : n > req ? ' : ' + (n - req) + ' personne(s) en trop' : ''); }
+  function staffTitle(n, req) { return req == null ? '' : n + pl(n, ' présent', ' présents') + ' pour ' + req + ' attendu' + (req > 1 ? 's' : '') + (n < req ? ' : il manque ' + (req - n) + pl(req - n, ' personne', ' personnes') : n > req ? ' : ' + (n - req) + pl(n - req, ' personne', ' personnes') + ' en plus' : ''); }
   function staffVals(day) { return (S.cache.staffVals || {})[day] || {}; }
   function refreshStaffDay(day) {
     var cfg = staffingCfg(S.svc); if (!cfg) return;
     var ex = extraN(cfg, day, staffVals), rq = requiredDay(cfg, day, staffVals), req = rq && rq.n, pres0 = (S.cache.presentByDay || {})[day] || 0, pres = pres0 + ex;
-    var tc = document.querySelector('[data-tot-day="' + day + '"]'); if (tc) { var pv = staffVals(C.addDays(day, -1)), tv = staffTotal(cfg, staffVals(day), pv), cr = prevCarry(cfg, pv); tc.textContent = tv == null ? '' : tv; tc.title = cr ? 'dont ' + cr + ' chambre(s) bloquée(s) la veille' : ''; }
+    var tc = document.querySelector('[data-tot-day="' + day + '"]'); if (tc) { var pv = staffVals(C.addDays(day, -1)), tv = staffTotal(cfg, staffVals(day), pv), cr = prevCarry(cfg, pv); tc.textContent = tv == null ? '' : tv; tc.title = cr ? 'dont ' + cr + pl(cr, ' chambre bloquée', ' chambres bloquées') + ' la veille' : ''; }
     var rc = document.querySelector('[data-req-day="' + day + '"]'), pc = document.querySelector('[data-pres-day="' + day + '"]');
     if (rc) { rc.textContent = reqLabel(rq); rc.title = rq && rq.livr ? 'Barème ' + rq.base + ' + 1 personne (livraison 2 jours avant) = ' + rq.n : ''; rc.classList.toggle('plus', !!(rq && rq.livr)); }
     var rmc = document.querySelector('[data-rem-day="' + day + '"]');
@@ -700,7 +702,7 @@
           return '<th class="mday sin">' + (ro ? (v == null ? '' : v) : '<input type="number" min="0" inputmode="numeric" data-change="staff" data-day="' + d + '" data-key="' + inp.key + '" value="' + (v == null ? '' : v) + '" aria-label="' + esc(inp.label) + ' le ' + dayLong(d) + '">') + '</th>';
         }).join('') + '<th class="mtot"></th></tr>';
       }).join('') +
-      (hasTotalRow(cfg) ? '<tr class="staffrow tot"><th class="mname">' + esc(totalLabel(cfg)) + '</th>' + days.map(function (d) { var pv = staffVals(C.addDays(d, -1)), t = staffTotal(cfg, staffVals(d), pv), cr = prevCarry(cfg, pv); return '<th class="mday" data-tot-day="' + d + '"' + (cr ? ' title="dont ' + cr + ' chambre(s) bloquée(s) la veille"' : '') + '>' + (t == null ? '' : t) + '</th>'; }).join('') + '<th class="mtot"></th></tr>' : '') +
+      (hasTotalRow(cfg) ? '<tr class="staffrow tot"><th class="mname">' + esc(totalLabel(cfg)) + '</th>' + days.map(function (d) { var pv = staffVals(C.addDays(d, -1)), t = staffTotal(cfg, staffVals(d), pv), cr = prevCarry(cfg, pv); return '<th class="mday" data-tot-day="' + d + '"' + (cr ? ' title="dont ' + cr + pl(cr, ' chambre bloquée', ' chambres bloquées') + ' la veille"' : '') + '>' + (t == null ? '' : t) + '</th>'; }).join('') + '<th class="mtot"></th></tr>' : '') +
       (cfg.extra ? '<tr class="staffrow xrow"><th class="mname">' + esc(cfg.extra.label || 'Demande extra StaffHôtel') + '</th>' + days.map(function (d) {
           var v = staffVals(d)._extra;
           return '<th class="mday sin">' + (ro ? (v == null ? '' : v) : '<input type="number" min="0" max="20" inputmode="numeric" data-change="staff" data-day="' + d + '" data-key="_extra" value="' + (v == null ? '' : v) + '" aria-label="' + esc(cfg.extra.label || 'Demande extra StaffHôtel') + ' le ' + d + '">') + '</th>';
@@ -717,9 +719,9 @@
       (can('planning', svc) && feat('rest_month') ? '<button class="btn sm" data-act="rest-month" title="Pose « Repos » sur les jours de repos habituels de chaque salarié (fiche Équipe), seulement sur les cases vides, à partir d\'aujourd\'hui">Poser les repos habituels</button>' : '') +
       (can('copy_week', svc) ? '<button class="btn sm" data-act="copy-month" title="Recopie, jour de semaine par jour de semaine, les shifts d\'il y a 4 ou 5 semaines sur les jours encore vides">Recopier les semaines précédentes</button>' : '') +
       (can('publish', svc) ? (published ? '<button class="btn sm ghost" data-act="unpublish">Dépublier le mois</button>' : '<button class="btn sm brass" data-act="publish">Publier le mois</button>') : '') + '</div></div>' + palette()) +
-      (cfg && !cfg.inputs.length && cfg.min_staff == null ? (!cfg.extra ? '' : '<p class="hint" style="margin:0">« ' + esc((cfg.extra || {}).label || 'Demande extra StaffHôtel') + ' » : chaque extra saisi compte comme une personne présente (simulation).</p>') : cfg && !cfg.inputs.length ? '<p class="hint" style="margin:0">Minimum ' + esc(cfg.min_staff) + ' présents chaque jour : la case « Présents » passe en jaune (chiffre rouge) s\'il en manque, en orange s\'il y en a plus.</p>' : cfg ? '<p class="hint" style="margin:0">Saisissez chaque jour ' + (cfg.combine === 'formula' ? 'les lignes ' + cfg.inputs.map(function (i) { return esc(i.label); }).join(', ') + ' (« ' + esc(totalLabel(cfg)) + ' » = ' + formulaText(cfg) + ')' : cfg.combine === 'sum' && cfg.inputs.length > 1 ? 'les lignes ' + cfg.inputs.map(function (i) { return esc(i.label); }).join(', ') + ' (le Total les additionne)' : cfg.inputs.map(function (i) { return '« ' + esc(i.label) + ' »'; }).join(' et ')) + ' : ou collez une ligne copiée depuis Excel dans la case du 1er jour (elle remplit tout le mois ; plusieurs lignes copiées remplissent aussi les lignes du dessous). HPG calcule l\'effectif requis (barème du service) : la case « Présents » passe en jaune (chiffre rouge) s\'il manque du personnel, en orange s\'il y a du personnel en trop.</p>' : '') +
+      (cfg && !cfg.inputs.length && cfg.min_staff == null ? (!cfg.extra ? '' : '<p class="hint" style="margin:0">« ' + esc((cfg.extra || {}).label || 'Demande extra StaffHôtel') + ' » : chaque extra saisi compte comme une personne présente (simulation).</p>') : cfg && !cfg.inputs.length ? '<p class="hint" style="margin:0">Il faut au moins ' + esc(cfg.min_staff) + ' présents chaque jour. La case « Présents » devient jaune (chiffre rouge) quand il manque du monde, orange quand il y en a plus que prévu.</p>' : cfg ? '<p class="hint" style="margin:0">Saisissez chaque jour ' + (cfg.combine === 'formula' ? 'les lignes ' + cfg.inputs.map(function (i) { return esc(i.label); }).join(', ') + ' (« ' + esc(totalLabel(cfg)) + ' » = ' + formulaText(cfg) + ')' : cfg.combine === 'sum' && cfg.inputs.length > 1 ? 'les lignes ' + cfg.inputs.map(function (i) { return esc(i.label); }).join(', ') + ' (le Total les additionne)' : cfg.inputs.map(function (i) { return '« ' + esc(i.label) + ' »'; }).join(' et ')) + ' : ou collez une ligne copiée depuis Excel dans la case du 1er jour (elle remplit tout le mois ; plusieurs lignes copiées remplissent aussi les lignes du dessous). HPG calcule l\'effectif requis (barème du service) : la case « Présents » passe en jaune (chiffre rouge) s\'il manque du personnel, en orange s\'il y a du personnel en trop.</p>' : '') +
       (team.length ? '<div class="table-wrap mwrap"><table class="grid mgrid"><thead>' + livr + '<tr>' + head + '</tr>' + staffRows + '</thead><tbody>' + body + '</tbody>' + foot + '</table></div>'
-        : '<div class="panel empty">Aucun salarié actif dans ce service. Ajoutez-en dans l\'onglet Équipe.</div>') + monthLegend();
+        : '<div class="panel empty">Personne n\'est encore rattaché à ce service. Ajoutez des salariés dans l\'onglet Équipe.</div>') + monthLegend();
   }
   /* Totaux par localisation (option du service) : nombre de personnes par shift et présents de chaque localisation */
   function byLocation(svc) { var sv = S.services.find(function (x) { return x.id === svc; }); return !!(sv && sv.staffing && sv.staffing.by_location) && feat('by_location'); }
@@ -789,7 +791,8 @@
     S.cache.myShifts = shifts;
     var swOk = swapsOn(), tomorrow = C.addDays(t, 1);
     function swappable(s) { return swOk && s.day >= tomorrow && (s.kind === 'work' || s.kind === 'repos') && !s.request_id && !s.jour_sup && !s.jour_rendu && res[1].some(function (p) { return p.service_id === s.service_id && p.month === s.day.slice(0, 8) + '01'; }); }
-    var swHtml = await mySwapsBlock();
+    var swHtml = await mySwapsBlock(), swList = shifts.filter(swappable).sort(function (a, b) { return a.day < b.day ? -1 : 1; });
+    S.cache.swappable = swList;
     var worked = shifts.reduce(function (a, s) { return a + C.shiftDetail(s).worked; }, 0);
     var start = C.weekStart(first), end = C.addDays(C.weekStart(last), 6), cells = '';
     for (var d = start; d <= end; d = C.addDays(d, 1)) {
@@ -797,12 +800,12 @@
       cells += '<div class="cal-day' + (inM ? '' : ' out') + (d === t ? ' today' : '') + '"><div class="cal-n">' + +d.slice(8, 10) + (hol && inM ? ' <span class="hol">' + esc(hol) + '</span>' : '') + '</div>' +
         (inM ? ds.map(function (s) { return chip(s, swappable(s) ? 'data-act="sw-new" data-id="' + s.id + '" title="Proposer un échange"' : 'tabindex="-1"'); }).join('') : '') + '</div>';
     }
-    return '<div class="page-head"><div><div class="eyebrow">' + esc((me.services || []).map(svcName).join(' · ')) + '</div><h2>Mon planning</h2></div><div class="row">' + monthNav() + '</div></div>' +
-      (!published ? '<div class="banner info">Le planning de ce mois n\'est pas encore publié. Vous recevrez une notification dès sa publication.</div>' : '') +
+    return '<div class="page-head"><div><div class="eyebrow">' + esc((me.services || []).map(svcName).join(' · ')) + '</div><h2>Mon planning</h2></div><div class="row">' + (swList.length ? '<button type="button" class="btn primary" data-act="sw-pick">⇄ Échanger un jour</button>' : '') + monthNav() + '</div></div>' +
+      (!published ? '<div class="banner info">Le planning de ce mois n\'est pas encore publié. Vous serez prévenu dès qu\'il le sera.</div>' : '') +
       '<div class="stats"><div class="stat"><div class="v">' + fmt(worked) + '</div><div class="l">heures prévues ce mois</div></div>' +
       '<div class="stat"><div class="v">' + shifts.filter(function (s) { return s.kind === 'work'; }).length + '</div><div class="l">jours travaillés</div></div></div>' +
       '<div class="cal"><div class="cal-h">' + ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map(function (x) { return '<div>' + x + '</div>'; }).join('') + '</div><div class="cal-g">' + cells + '</div></div>' +
-      '<p class="hint">Seuls les mois publiés par votre manager apparaissent, avec vos congés validés.</p>' + legend() + swHtml;
+      '<p class="hint">Vous voyez les mois publiés par votre manager, avec vos congés validés.' + (swList.length ? ' Les jours entourés en pointillés peuvent être échangés avec un collègue : touchez-en un.' : '') + '</p>' + legend() + swHtml;
   }
   async function vTeamPlanning() { return vTeamMonth(); }
   /* Effectif par shift et par jour (pied du tableau du planning) */
@@ -1502,7 +1505,7 @@
     await refreshConfig(true);
     var svc = S.svc, y = S.ptYear || +today().slice(0, 4), team = teamOf(svc).filter(function (p) { return cpEligible(p); });
     var T = window.HPG_POINTAGE;
-    if (!T) { toast('Gabarit de la fiche de pointage manquant (modele-pointage.js).', true); return; }
+    if (!T) { toast('Le modèle de fiche de pointage n\'a pas été trouvé. Rechargez la page.', true); return; }
     try {
       var all = await Store.shifts(y + '-01-01', y + '-12-31', {});
       var sheets = team.map(function (p) { return { name: p.full_name, xml: pointageXml(T, p, y, all.filter(function (s) { return s.employee_id === p.id; })) }; });
@@ -1512,8 +1515,12 @@
 
   /* ---------- MANAGER / DIRECTION : demandes ---------- */
   async function vValidate() {
-    var res = await Promise.all([Store.requests(), Store.profiles()]), all = res[0];
+    var res = await Promise.all([Store.requests(), Store.profiles(), feat('echanges') ? Store.swaps().catch(function () { return []; }) : []]), all = res[0];
     S.profiles = res[1];
+    var swBoss = res[2].filter(function (w) { return w.status === 'pending_manager' && canDecideSwap(w); }), swPeer = res[2].filter(function (w) { return w.status === 'pending_peer' && can('planning', w.service_id); });
+    var swHtml = feat('echanges') ? '<section class="list" id="echanges"><h3>Échanges de shifts à valider <span class="muted small">(' + swBoss.length + ')</span></h3>' +
+      (swBoss.length ? swBoss.map(function (w) { return swapItem(w, 'boss'); }).join('') : '<div class="panel empty">Aucun échange à valider. Quand deux salariés se mettent d\'accord, l\'échange arrive ici.</div>') +
+      (swPeer.length ? '<p class="hint">' + pl(swPeer.length, 'Un échange attend', swPeer.length + ' échanges attendent') + ' encore la réponse du collègue.</p>' : '') + '</section>' : '';
     var mineToDo = all.filter(canDecide);
     var rest = all.filter(function (r) { return mineToDo.indexOf(r) < 0 && r.employee_id !== S.me.id; }).slice(0, 40);
     var otB = {};
@@ -1522,7 +1529,7 @@
       var n = all.filter(function (x) { return x.id !== r.id && x.service_id === r.service_id && (x.status === 'approved' || /^pending/.test(x.status)) && x.start_date <= r.end_date && x.end_date >= r.start_date; });
       var p = S.profiles.find(function (x) { return x.id === r.employee_id; }), bal = '';
       if (p) bal = '<div class="sub">Soldes : ' + esc(counters(p)) + (otB[p.id] != null ? ' · heures supp ' + signedFmt(otB[p.id]) : '') + '</div>';
-      return bal + (n.length ? '<div class="sub" style="color:var(--warn)">' + n.length + ' autre(s) absence(s) dans le service sur cette période : ' + n.map(function (x) { return esc(name(x.employee_id)); }).join(', ') + '</div>' : '');
+      return bal + (n.length ? '<div class="sub" style="color:var(--warn)">' + (n.length > 1 ? n.length + ' autres absences' : 'Une autre absence') + ' dans le service sur cette période : ' + n.map(function (x) { return esc(name(x.employee_id)); }).join(', ') + '</div>' : '');
     }
     var svcs = rightServices('requests'), people = S.profiles.filter(function (p) { return (p.id !== S.me.id || isAdmin()) && p.active && ['employee', 'assistant', 'manager', 'admin'].indexOf(p.role) >= 0 && (p.services || []).some(function (s) { return svcs.indexOf(s) >= 0; }); });
     var form = svcs.length || isAdmin() ? '<section class="panel"><h3>Saisir une demande</h3><p class="hint" style="margin-top:0">' + (empRight('requests') ? 'Les salariés font aussi leurs demandes eux-mêmes : elles arrivent ci-dessous, « À traiter ». ' : 'Les salariés ne font pas de demande dans HPG (option activable dans Paramètres → Droits des rôles) : ') + 'vous saisissez la demande puis vous la validez. Les congés payés partent ensuite à la direction pour la validation finale. Une demande d\'un manager ou d\'un assistant est saisie par l\'administrateur.</p>' +
@@ -1533,7 +1540,8 @@
       '<div class="row"><button class="btn brass" type="submit" data-and="validate">Saisir et valider</button><button class="btn" type="submit" data-and="">Saisir seulement (à valider plus tard)</button></div></form></section>' : '';
     return '<div class="page-head"><div><div class="eyebrow">' + (isAdmin() ? 'Tous les services' : esc(svcs.map(svcName).join(' · '))) + '</div><h2>Demandes à valider</h2></div></div>' + form +
       '<section class="list"><h3>À traiter <span class="muted small">(' + mineToDo.length + ')</span></h3>' +
-      (mineToDo.length ? mineToDo.map(function (r) { return requestItem(r, true, info(r)); }).join('') : '<div class="panel empty">Rien à valider pour le moment.</div>') + '</section>' +
+      (mineToDo.length ? mineToDo.map(function (r) { return requestItem(r, true, info(r)); }).join('') : '<div class="panel empty">Tout est à jour : rien à valider.</div>') + '</section>' +
+      swHtml +
       '<section class="list"><h3>Historique récent</h3>' + (rest.length ? rest.map(function (r) { return requestItem(r, true); }).join('') : '<div class="panel empty">Aucune demande.</div>') + '</section>';
   }
   function openRefuse(id) {
@@ -1572,7 +1580,7 @@
   function showCode(p, r) {
     var name = (p && (p.full_name || p.email)) || '', email = (r && r.email) || (p && p.email) || '';
     var msg = 'Bonjour ' + name + ',\n\nVotre accès au planning de ' + (S.settings.hotel_name || 'l\'hôtel') + ' est ouvert.\nSite : ' + siteUrl() + '\nIdentifiant : ' + email + '\nMot de passe : le code provisoire que je vous remets en main propre.\nÀ la première connexion, vous choisirez votre propre mot de passe.';
-    var mail = r.demo ? '<div class="banner info">Démonstration : aucun e-mail n\'est réellement envoyé.</div>'
+    var mail = r.demo ? '<div class="banner info">Mode démo : aucun e-mail ne part vraiment.</div>'
       : r.mailed ? '<div class="banner info"><div>E-mail envoyé à <b>' + esc(email) + '</b> avec le lien du site et son identifiant (sans le code).</div></div>'
       : r.created === false || (r.mailed === false && !r.mail_error) ? ''
       : '<div class="banner warn mailwarn">' + (r.mail_error === 'not_configured' ? 'L\'envoi d\'e-mails n\'est pas encore configuré : aucun e-mail n\'est parti.' : 'L\'e-mail n\'a pas pu partir (' + esc(r.mail_error || '') + ').') +
@@ -1585,7 +1593,7 @@
     dlg.onclick = function (e) {
       var b = e.target.closest('[data-copy]'); if (!b) return;
       var t = b.dataset.copy === 'code' ? r.temp_password : msg;
-      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copié'); }, function () { toast('Sélectionnez puis copiez à la main', true); });
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { toast('Copié !'); }, function () { toast('Sélectionnez puis copiez à la main', true); });
     };
     if (!dlg.open) dlg.showModal();
   }
@@ -1624,7 +1632,7 @@
     }
     return '<div class="page-head"><div><div class="eyebrow">' + esc(svcName(svc)) + '</div><h2>Équipe</h2><div class="small muted">' + members.length + ' fiche' + (members.length > 1 ? 's' : '') + '</div></div><div class="row">' + svcSelect() +
       (hasRight('owed') ? '<button class="btn" data-act="credit-ferie">Créditer des jours fériés</button>' : '') + (canTeam ? '<button class="btn brass" data-act="add-staff">Ajouter un salarié</button>' : '') + '</div></div>' +
-      (noHire.length ? '<div class="banner warn">' + noHire.length + ' salarié(s) sans date d\'entrée : congés payés et ancienneté non calculés (' + noHire.map(function (p) { return esc(p.full_name); }).join(', ') + ').</div>' : '') +
+      (noHire.length ? '<div class="banner warn">' + noHire.length + pl(noHire.length, ' salarié n\'a pas de date d\'entrée', ' salariés n\'ont pas de date d\'entrée') + ' : congés payés et ancienneté ne sont pas calculés (' + noHire.map(function (p) { return esc(p.full_name); }).join(', ') + ').</div>' : '') +
       (pending.length && (admin || canTeam) ? '<section class="list"><h3>Comptes à activer</h3>' + pending.map(function (p) {
         return '<div class="item"><div><div class="title">' + esc(p.full_name || '(sans nom)') + '</div><div class="sub">' + esc(p.email) + ' · compte créé, pas encore rattaché</div></div>' +
           '<div class="acts"><button class="btn sm brass" data-act="edit-profile" data-id="' + p.id + '">Activer</button></div></div>';
@@ -1672,7 +1680,7 @@
     var p = S.profiles.find(function (x) { return x.id === empId; });
     var list = await Store.owedDays({ employeeId: empId }), manage = svcOwedRight(p);
     dlg.innerHTML = '<form id="ow" class="form" novalidate><div class="dlg-h"><div><div class="eyebrow">' + esc(p.full_name) + '</div><h3>Jours dus</h3>' +
-      '<div class="small muted">' + num(p.ferie_balance || 0) + ' férié(s) dû(s) · ' + num(p.recup_days || 0) + ' jour(s) à récupérer · ' + num(p.rendre_days || 0) + ' jour(s) à rendre</div></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b">' +
+      '<div class="small muted">' + num(p.ferie_balance || 0) + pl(p.ferie_balance, ' férié dû', ' fériés dus') + ' · ' + num(p.recup_days || 0) + pl(p.recup_days, ' jour à récupérer', ' jours à récupérer') + ' · ' + num(p.rendre_days || 0) + pl(p.rendre_days, ' jour à rendre', ' jours à rendre') + '</div></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b">' +
       owedTable(list, manage) +
       (manage ? '<div class="panel form"><h3>Ajouter un jour</h3>' +
       '<div class="two"><label class="f">Type<select id="ow-type"><option value="ferie">Jour férié dû (l\'entreprise le doit)</option><option value="recup">Jour à récupérer (l\'entreprise le doit)</option><option value="rendre">Jour à rendre (le salarié le doit)</option></select></label>' +
@@ -1859,7 +1867,7 @@
     work: { default_contract_hours: 39, break_threshold_min: 360, break_min: 30, min_rest_hours: 11 }, req: { publish_weeks_ahead: 2 },
     cp: { cp_monthly_days: 2.5, cp_credit_day: 1, cp_credit_month: 5, cp_cap: 30, cp_contracts: ['cdi', 'cdd', 'alternant'] }, ot: { contingent_hours: 360, ot_day_minutes: 450 },
     sen: { seniority_years: 5, seniority_days: 1, seniority_contracts: ['cdi', 'cdd', 'alternant'] }, pres: { prev_month_start_day: 25 },
-    rights: { rights: { manager: { planning: true, publish: true, copy_week: true, requests: true, owed: true, presence: true, overtime: true, team: true, extras: true, extras_sign: true, journal: true }, assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false, extras: true, extras_sign: false, journal: true, swaps: true }, employee: { team_planning: false, balances: true } } },
+    rights: { rights: { manager: { planning: true, publish: true, copy_week: true, requests: true, owed: true, presence: true, overtime: true, team: true, extras: true, extras_sign: true, journal: true }, assistant: { planning: true, publish: false, copy_week: true, requests: false, owed: false, presence: false, overtime: false, team: false, extras: true, extras_sign: false, journal: true, swaps: true }, employee: { team_planning: false, balances: true, swaps: true } } },
     days: { day_types: {} }, notif: { notify: { publish: true, change: true, request: true, decision: true, credit: true } }, hotel: {}, rest: { rest_auto_months: 3 }
   };
   async function vSettings() {
@@ -1885,9 +1893,9 @@
     function rightsBoxAdmin() {
       var L = Object.assign({}, RIGHT_LABELS, ADMIN_RIGHTS), n = 0, tot = Object.keys(L).length;
       var h = Object.keys(L).map(function (k) { var on = (R.admin || {})[k] !== false; if (on) n++; return sw('data-right="admin.' + k + '"', L[k], on); }).join('');
-      return h + '<div class="small muted">' + n + ' droit(s) accordé(s) sur ' + tot + '. Seul le développeur voit et modifie ce bloc.</div>';
+      return h + '<div class="small muted">' + n + ' sur ' + tot + pl(n, ' droit accordé', ' droits accordés') + '. Seul le développeur voit et modifie ce bloc.</div>';
     }
-    function rightsBox(ro, labels) { var n = 0, tot = Object.keys(labels).length; var h = Object.keys(labels).map(function (k) { if ((R[ro] || {})[k]) n++; return sw('data-right="' + ro + '.' + k + '"', labels[k], (R[ro] || {})[k]); }).join(''); return h + '<div class="small muted">' + n + ' droit(s) accordé(s) sur ' + tot + '. Le reste est réservé à l\'administrateur.</div>'; }
+    function rightsBox(ro, labels) { var n = 0, tot = Object.keys(labels).length; var h = Object.keys(labels).map(function (k) { if ((R[ro] || {})[k]) n++; return sw('data-right="' + ro + '.' + k + '"', labels[k], (R[ro] || {})[k]); }).join(''); return h + '<div class="small muted">' + n + ' sur ' + tot + pl(n, ' droit accordé', ' droits accordés') + '. Le reste est réservé à l\'administrateur.</div>'; }
     var tplSvc = S.tplSvc == null ? String(S.svc || (S.services[0] || {}).id || '') : String(S.tplSvc);
     var tpls = S.templates.filter(function (t) { return tplSvc === '' ? true : tplSvc === 'all' ? !t.service_id : String(t.service_id || '') === tplSvc; });
     var dt = st.day_types || {};
@@ -1909,7 +1917,7 @@
       card(ICON.users, 'Jours d\'ancienneté', 'Crédités automatiquement à chaque palier atteint (date anniversaire).',
         '<div class="two">' + nf('seniority_years', 'Années par tranche', st.seniority_years || 5, 'min="1" max="40"') + nf('seniority_days', 'Jours par tranche', st.seniority_days || 1, 'min="0" max="10" step="0.5"') + '</div>' +
         '<div><span class="eyebrow">Statuts concernés</span>' + ctChecks('data-arr="seniority_contracts"', st.seniority_contracts) + '</div>' +
-        '<div class="row"><button type="button" class="btn sm" data-act="sen-recalc">Recalculer les jours d\'ancienneté</button><span class="small muted">+' + num(st.seniority_days || 1) + ' j tous les ' + (st.seniority_years || 5) + ' ans · ' + res[5].length + ' palier(s) déjà crédité(s)</span></div>', 'sen'),
+        '<div class="row"><button type="button" class="btn sm" data-act="sen-recalc">Recalculer les jours d\'ancienneté</button><span class="small muted">+' + num(st.seniority_days || 1) + ' j tous les ' + (st.seniority_years || 5) + ' ans · ' + res[5].length + pl(res[5].length, ' palier déjà crédité', ' paliers déjà crédités') + '</span></div>', 'sen'),
       card(ICON.users, 'Droits du rôle Manager', 'Dans les services qui lui sont attribués. Il voit toujours le planning et possède son propre planning.', rightsBox('manager', RIGHT_LABELS), 'rights'),
       card(ICON.users, 'Droits du rôle Assistant', 'Dans les services qui lui sont attribués. Il voit toujours le planning et possède son propre planning.', rightsBox('assistant', ASSISTANT_RIGHTS), 'rights'),
       card(ICON.user, 'Droits du rôle Salarié', 'Depuis son propre compte. Il voit toujours son planning personnel (mois publiés). Il ne saisit jamais de demande.', rightsBox('employee', EMP_RIGHTS), 'rights'),
@@ -1949,11 +1957,11 @@
       '<div class="table-wrap" style="border:0"><table><thead><tr><th>Nom</th><th>Service</th><th>Début</th><th>Fin</th><th>Couleur</th><th title="Texte écrit dans la case du planning (vide = automatique)">Affiché</th><th title="Couleurs propres à ce shift (laisser « auto » pour la couleur de la liste)">Fond / texte</th><th title="Nombre de chambres faites avec ce shift (Housekeeping) : affiché dans la case du planning et retiré du total à faire">Chambres</th><th>Ordre</th><th>Actif</th><th></th></tr></thead><tbody>' +
       (tpls.length ? tpls.map(tplRow).join('') : '<tr><td colspan="11" class="muted small">Aucun shift pour ce service : ajoutez le premier ci-dessous.</td></tr>') +
       tplRow({ id: '', name: '', start_time: '', end_time: '', color: 'am', sort: tpls.length + 1, active: true, service_id: tplSvc && tplSvc !== 'all' ? +tplSvc : null }) + '</tbody></table></div>' +
-      '<div class="hint">Dernière ligne = nouveau shift pour ' + (tplSvc === 'all' ? 'tous les services' : esc(svcName(+tplSvc))) + '. « Tous les services » = shift proposé partout. Décocher « Actif » retire un shift de la palette sans toucher aux plannings déjà faits.</div></section>';
+      '<div class="hint">La dernière ligne sert à créer un shift pour ' + (tplSvc === 'all' ? 'tous les services' : esc(svcName(+tplSvc))) + '. Avec « Tous les services », le shift est proposé partout. Décocher « Actif » retire un shift de la palette sans toucher aux plannings déjà faits.</div></section>';
     var cpCard = '<section class="panel"><h3>Congés payés par salarié</h3><p class="small" style="margin-top:0">Le ' + (st.cp_credit_day || 1) + ' ' + MOIS_L[(st.cp_credit_month || 5) - 1] + ' de chaque année, chaque salarié des statuts concernés reçoit ' + num(rate) + ' jours par mois de présence sur la période écoulée, calculés depuis sa date d\'entrée (prorata, arrondi au supérieur, plafond ' + cap + ' j).</p>' +
       (done ? '<div class="banner info">Période du ' + d(lastStart) + ' au ' + d(lastEnd) + ' : déjà créditée.</div>'
         : '<button class="btn brass" data-act="accrue" data-m="' + today() + '">Calculer et créditer les CP de la période du ' + d(lastStart) + ' au ' + d(lastEnd) + '</button>') +
-      (missing ? '<div class="banner warn">' + missing + ' salarié(s) sans date d\'entrée : ils ne seront pas crédités. Renseignez-la dans Équipe.</div>' : '') +
+      (missing ? '<div class="banner warn">' + missing + pl(missing, ' salarié n\'a pas de date d\'entrée : il ne sera pas crédité.', ' salariés n\'ont pas de date d\'entrée : ils ne seront pas crédités.') + ' Renseignez-la dans Équipe.</div>' : '') +
       '<div class="table-wrap" style="border:0"><table><thead><tr><th>Salarié</th><th>Contrat</th><th>Entrée</th><th class="n">Acquis à ce jour</th><th class="n">Prévus au ' + d(per.next) + '</th><th class="n">Solde CP</th><th class="n">Ancienneté</th></tr></thead><tbody>' +
       (cpRows || '<tr><td colspan="7" class="empty">Aucun salarié.</td></tr>') + '</tbody></table></div>' +
       '<div class="list">' + (acc.length ? acc.map(function (a) { return '<div class="sub">' + d(a.period_start) + ' → ' + d(a.period_end) + ' : ' + String(a.total_days).replace('.', ',') + ' j crédités à ' + a.employees + ' salariés</div>'; }).join('') : '<div class="sub muted">Aucun crédit enregistré.</div>') + '</div></section>';
@@ -2082,7 +2090,7 @@
   function coCard(c, big) {
     var rows = CO_FIELDS.slice(1).filter(function (f) { return c[f[0]] != null && c[f[0]] !== ''; }).map(function (f) { return '<div><dt>' + esc(f[1].replace(' *', '')) + '</dt><dd>' + esc(c[f[0]]) + '</dd></div>'; });
     if (c.notes) rows.push('<div class="wide"><dt>Notes</dt><dd>' + esc(c.notes) + '</dd></div>');
-    return rows.length ? '<dl class="co-dl' + (big ? ' panel' : '') + '">' + rows.join('') + '</dl>' : (big ? '<div class="panel empty">Fiche à compléter.</div>' : '');
+    return rows.length ? '<dl class="co-dl' + (big ? ' panel' : '') + '">' + rows.join('') + '</dl>' : (big ? '<div class="panel empty">Cette fiche est encore à compléter.</div>' : '');
   }
   function featBox(fs) {
     return '<fieldset class="co-start co-feat"><legend>Options de l\'entreprise <span class="muted small">(développeur seulement · décochez ce que l\'établissement ne doit pas avoir)</span></legend>' +
@@ -2156,7 +2164,7 @@
     return '<div class="page-head"><div><div class="eyebrow">' + (isAdmin() ? 'Tout l\'établissement' : esc(rightServices('journal').map(svcName).join(' · '))) + '</div><h2>Journal des modifications</h2></div></div>' +
       (list.length ? '<div class="table-wrap stackwrap"><table class="stack"><thead><tr><th>Quoi</th><th>Quand</th><th>Qui</th><th>Action</th><th>Détail</th></tr></thead><tbody>' +
         list.map(function (e) { return '<tr><td class="st-title"><b>' + esc(TN[e.table_name] || e.table_name) + '</b></td><td data-l="Quand" class="small nowrap">' + stamp(new Date(e.at)) + '</td><td data-l="Qui">' + esc(e.actor_name || 'Système') + '</td><td data-l="Action">' + esc(AN[e.action] || e.action) + '</td><td data-l="Détail" class="small">' + esc(what(e)) + '</td></tr>'; }).join('') +
-        '</tbody></table></div>' : '<div class="panel empty">Aucune modification enregistrée.</div>');
+        '</tbody></table></div>' : '<div class="panel empty">Aucune modification pour l\'instant.</div>');
   }
 
   /* ---------- Impression du planning mensuel : tout le mois sur UNE seule page A4 paysage ---------- */
@@ -2185,7 +2193,7 @@
     if (rmc != null) return { code: String(rmc), bg: bgc || (PDFC[k] || PDFC.am)[0], fg: fgc || (PDFC[k] || PDFC.am)[1] };
     if (tpc && (tpc.label || tpc.bg)) return { code: tpc.label || (letter || startCode(sh.start_time, k)), bg: bgc || (PDFC[k] || PDFC.am)[0], fg: fgc || (PDFC[k] || PDFC.am)[1] };
     if (sh.kind !== 'work') return { code: ABBR[sh.kind] || '?', bg: (((S.settings.day_types || {})[sh.kind] || {}).bg) || (PDFC[sh.kind] || PDFC.repos)[0], fg: (((S.settings.day_types || {})[sh.kind] || {}).fg) || (PDFC[sh.kind] || PDFC.repos)[1] };
-    if (letter) return { code: letter, bg: { open: '#FF9F0A', am: '#8EE5A6', pm: '#FF3EB5', night: '#1E3A8A' }[k], fg: { open: '#D00000', am: '#000000', pm: '#000000', night: '#FFFFFF' }[k] };
+    if (letter) return { code: letter, bg: { open: '#FF9F0A', am: '#8EE5A6', pm: '#FF3EB5', night: '#1E3A8A' }[k], fg: { open: '#8B0000', am: '#000000', pm: '#000000', night: '#FFFFFF' }[k] };
     return { code: startCode(sh.start_time, k), bg: (PDFC[k] || PDFC.am)[0], fg: (PDFC[k] || PDFC.am)[1] };
   }
   async function exportPdf(month, svc) {
@@ -2433,7 +2441,7 @@
     app.innerHTML = '<div class="auth"><form class="card form" id="auth" novalidate><div><h1>HPG</h1><p class="muted" style="margin:4px 0 0">Hotelplanning · planning et heures de l\'équipe</p></div><h3>' + title + '</h3>' + fields +
       '<div class="err" id="au-err" role="alert">' + esc(msg && msg.err || '') + '</div>' + (msg && msg.ok ? '<div class="banner info">' + esc(msg.ok) + '</div>' : '') +
       '<button class="btn primary" type="submit">' + { login: 'Continuer', signup: 'Créer mon compte', forgot: 'Recevoir le lien', recovery: 'Enregistrer', firstpw: 'Enregistrer et continuer' }[m] + '</button>' +
-      (sw ? '<div class="auth-sw">' + sw + '</div>' : '') + '<p class="hint" id="au-hint" style="margin:0">Votre identifiant et votre mot de passe vous sont remis par votre responsable.</p></form></div>';
+      (sw ? '<div class="auth-sw">' + sw + '</div>' : '') + '<p class="hint" id="au-hint" style="margin:0">Votre responsable vous donne votre identifiant et votre mot de passe.</p></form></div>';
     var f = document.getElementById('auth');
     f.addEventListener('click', function (e) {
       if (e.target.closest('[data-logout]')) { S.authMode = 'login'; logout(); return; }
@@ -2601,8 +2609,8 @@
       return '<button type="button" data-act="x-filter" data-v="' + o[0] + '" aria-pressed="' + (flt === o[0]) + '">' + o[1] + '</button>';
     }).join('') + '</div>';
     return head +
-      '<div class="stats"><div class="stat"><div class="v' + (nTo ? ' over' : '') + '">' + nTo + '</div><div class="l">contrat(s) à signer</div></div><div class="stat"><div class="v">' + nSi + '</div><div class="l">contrat(s) signé(s)</div></div>' +
-      '<div class="stat"><div class="v">' + todo.length + '</div><div class="l">shift(s) d\'extra sans contrat</div></div></div>' + todoHtml +
+      '<div class="stats"><div class="stat"><div class="v' + (nTo ? ' over' : '') + '">' + nTo + '</div><div class="l">' + pl(nTo, 'contrat à signer', 'contrats à signer') + '</div></div><div class="stat"><div class="v">' + nSi + '</div><div class="l">' + pl(nSi, 'contrat signé', 'contrats signés') + '</div></div>' +
+      '<div class="stat"><div class="v">' + todo.length + '</div><div class="l">' + pl(todo.length, 'shift d\'extra sans contrat', 'shifts d\'extra sans contrat') + '</div></div></div>' + todoHtml +
       '<section class="panel"><h3 style="margin-top:0">Historique des contrats</h3>' +
       '<p class="hint">Imprimez le contrat, faites-le signer par l\'extra et par l\'établissement, puis le manager le marque « Signé » : la direction voit ici qu\'il a bien été signé par les deux parties. Un contrat signé ne se modifie plus ; aucun contrat n\'est supprimé.</p>' +
       '<div style="margin:0 0 10px">' + seg + '</div>' +
@@ -2623,10 +2631,10 @@
         (!miss.length && rate && !x.archived ? '<button type="button" class="btn sm brass" data-act="x-contract" data-extra="' + x.id + '">Contrat</button>' : '') + '</div></td></tr>';
     }).join('');
     return '<section class="panel"><h3 style="margin-top:0">Registre des extras</h3>' +
-      '<p class="hint">Fiche complète (adresse, niveau, échelon) = contrat possible. Reliez la fiche à sa ligne du planning : le contrat peut alors être imprimé depuis chacun de ses shifts.</p>' +
+      '<p class="hint">Dès que la fiche est complète (adresse, niveau, échelon), vous pouvez faire un contrat. Reliez la fiche à sa ligne du planning pour imprimer le contrat directement depuis chacun de ses shifts.</p>' +
       '<label class="row small" style="margin-bottom:10px"><input type="checkbox" data-change="x-arch"' + (showArch ? ' checked' : '') + '> Afficher les fiches archivées</label>' +
       (rows ? '<div class="table-wrap stackwrap"><table class="stack"><thead><tr><th>Nom</th><th>Adresse</th><th>Poste</th><th>Niv. / éch.</th><th>Catégorie</th><th class="n">Taux</th><th>Services</th><th>Ligne du planning</th><th class="n">Contrats</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
-        : '<div class="empty">Aucun extra enregistré. « Nouvel extra » pour créer la première fiche.</div>') + '</section>';
+        : '<div class="empty">Pas encore d\'extra. Cliquez sur « Nouvel extra » pour créer la première fiche.</div>') + '</section>';
   }
 
   /* Fiche d'un extra (création / modification). pid : ligne du planning à relier (préremplit le nom). */
@@ -2751,7 +2759,7 @@
   /* Contrat depuis un shift du planning : crée le contrat s'il n'existe pas, puis l'imprime */
   async function contractFromShift(shiftId, sh) {
     if (!sh) sh = (await Store.shifts(C.addDays(today(), -400), C.addDays(today(), 400))).find(function (s) { return s.id === shiftId; });
-    if (!sh) { toast('Shift introuvable.', true); return; }
+    if (!sh) { toast('Ce shift n\'existe plus. Rechargez la page.', true); return; }
     await loadExtras();
     var cur = (await Store.extraContracts({ shiftId: sh.id })).find(function (k) { return k.status !== 'cancelled'; });
     if (cur) { await printContract(cur); return cur; }
@@ -2901,9 +2909,9 @@
     var inc = list.filter(function (w) { return w.target_id === me && w.status === 'pending_peer'; });
     var mine = list.filter(function (w) { return w.requester_id === me || (w.target_id === me && w.status !== 'pending_peer'); }).slice(0, 8);
     return '<section class="list" aria-label="Échanges de shifts"><h3>Échanges de shifts</h3>' +
-      (swapsOn() ? '<p class="hint">Touchez un de vos jours à venir dans le calendrier pour proposer un échange à un collègue du service. Il doit accepter, puis ' + (role() === 'assistant' ? 'le manager (ou l\'administrateur) valide' : 'votre manager valide') + '.</p>' : '') +
+      (swapsOn() ? '<p class="hint">Pour échanger un jour avec un collègue, utilisez le bouton « Échanger un jour » en haut de la page. Votre collègue accepte, puis ' + (role() === 'assistant' ? 'le manager ou l\'administrateur valide' : 'votre manager valide') + '.</p>' : '') +
       (inc.length ? inc.map(function (w) { return swapItem(w, 'peer'); }).join('') : '') +
-      (mine.length ? mine.map(function (w) { return swapItem(w, w.requester_id === me ? 'mine' : 'x'); }).join('') : (inc.length ? '' : '<div class="panel empty">Aucun échange en cours.</div>')) + '</section>';
+      (mine.length ? mine.map(function (w) { return swapItem(w, w.requester_id === me ? 'mine' : 'x'); }).join('') : (inc.length ? '' : '<div class="panel empty">Pas d\'échange en cours.</div>')) + '</section>';
   }
   async function openSwap(shiftId) {
     var sh = (S.cache.myShifts || []).find(function (x) { return x.id === shiftId; });
@@ -2915,16 +2923,31 @@
       (cands.length ? '<label class="f">Contre le jour d\'un collègue<select id="sw-t">' + cands.map(function (c) {
         return '<option value="' + c.shift_id + '">' + esc(dayShort(c.day) + ' · ' + c.full_name + ' · ' + (c.kind === 'work' ? (c.label || 'Travail') + ' ' + hhmm(c.start_time) + '–' + hhmm(c.end_time) : 'Repos')) + '</option>';
       }).join('') + '</select></label><label class="f">Message pour votre collègue (facultatif)<input type="text" id="sw-n" maxlength="300"></label>' +
-        '<p class="small muted" style="margin:0">Choisir le <b>repos</b> d\'un collègue le même jour = il travaille à votre place et vous êtes en repos. Votre collègue doit accepter, puis votre manager valide ; le planning change à la validation.</p>'
-        : '<div class="banner info">Aucun jour de collègue disponible à ±21 jours (planning publié, à partir de demain).</div>') +
+        '<p class="small muted" style="margin:0">Astuce : si vous choisissez le <b>repos</b> d\'un collègue le même jour, il travaille à votre place et vous êtes en repos. Votre collègue accepte, puis votre manager valide. Le planning change seulement après cette validation.</p>'
+        : '<div class="banner info">Aucun collègue n\'a de jour échangeable dans les 3 semaines autour de cette date. Seuls les jours publiés, à partir de demain, sont proposés.</div>') +
       '<div class="err" id="sw-err" role="alert"></div></div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button>' + (cands.length ? '<button class="btn primary" type="submit">Proposer l\'échange</button>' : '') + '</div></div></form>';
     var f = dlg.querySelector('#swf');
     f.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) dlg.close(); });
     f.addEventListener('submit', async function (e) {
       e.preventDefault();
       try { await Store.createSwap(sh.id, f.querySelector('#sw-t').value, f.querySelector('#sw-n').value.trim()); } catch (ex) { f.querySelector('#sw-err').textContent = ex.message; return; }
-      dlg.close(); toast('Échange proposé : votre collègue est prévenu'); render();
+      dlg.close(); toast('C\'est envoyé. Votre collègue va recevoir la proposition.'); render();
     });
+    dlg.showModal();
+  }
+  /* choix du jour à échanger (bouton « Échanger un jour » de Mon planning) */
+  function openSwapPick() {
+    var list = S.cache.swappable || [];
+    if (!list.length) { toast('Aucun jour échangeable ce mois-ci.'); return; }
+    dlg.innerHTML = '<form id="swp" class="form" novalidate><div class="dlg-h"><div><div class="eyebrow">Échange de shift</div><h3>Quel jour voulez-vous échanger ?</h3></div><button type="button" class="btn sm ghost" data-close aria-label="Fermer">✕</button></div><div class="dlg-b">' +
+      '<label class="f">Votre jour<select id="swp-d">' + list.map(function (s) {
+        return '<option value="' + s.id + '">' + esc(dayLong(s.day) + ' · ' + (s.kind === 'work' ? (s.label || 'Travail') + ' ' + hhmm(s.start_time) + '–' + hhmm(s.end_time) : 'Repos')) + '</option>';
+      }).join('') + '</select></label>' +
+      '<p class="small muted" style="margin:0">Ensuite, vous choisissez le jour d\'un collègue. Il doit accepter, puis ' + (role() === 'assistant' ? 'le manager ou l\'administrateur' : 'votre manager') + ' valide. Le planning change seulement après cette validation.</p>' +
+      '</div><div class="dlg-f"><span></span><div class="row"><button type="button" class="btn ghost" data-close>Annuler</button><button class="btn primary" type="submit">Continuer</button></div></div></form>';
+    var f = dlg.querySelector('#swp');
+    f.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) dlg.close(); });
+    f.addEventListener('submit', function (e) { e.preventDefault(); var id = f.querySelector('#swp-d').value; dlg.close(); openSwap(id); });
     dlg.showModal();
   }
   function openSwapRefuse(id) {
@@ -2977,7 +3000,7 @@
         rep.map(function (r) { var p = S.profiles.find(function (x) { return x.id === r.author_id; }); return '<div class="fb-reply"><b>' + esc(p && p.role === 'developer' ? 'Développeur' : name(r.author_id) || '—') + '</b> <span class="small muted">' + stamp(new Date(r.created_at)) + '</span><div>' + esc(r.body).replace(/\n/g, '<br>') + '</div></div>'; }).join('') +
         '<form class="row fb-rep" data-submit="feedback-reply" data-id="' + f.id + '" novalidate><input type="text" maxlength="2000" placeholder="Répondre…" aria-label="Répondre"><button class="btn sm" type="submit">Envoyer</button></form></div>';
     }).join('');
-    return '<section class="panel" id="retours"><h3 style="margin-top:0">Bugs et améliorations</h3><p class="hint">Vos messages arrivent directement au développeur de HPG, qui répond ici. Tout l\'encadrement de l\'établissement voit les échanges.</p>' + form + (items || '<div class="empty">Aucun message pour l\'instant.</div>') + '</section>';
+    return '<section class="panel" id="retours"><h3 style="margin-top:0">Bugs et améliorations</h3><p class="hint">Vos messages arrivent directement au développeur de HPG, qui répond ici. Tout l\'encadrement de l\'établissement voit les échanges.</p>' + form + (items || '<div class="empty">Pas encore de message. Le premier, c\'est peut-être vous !</div>') + '</section>';
   }
   async function vDashboard() {
     var svcs = isAdmin() ? S.services.filter(function (x) { return !x.archived; }).map(function (x) { return x.id; }) : myServices();
@@ -2994,18 +3017,19 @@
     function card(n, label, view, warn) { return '<button type="button" class="stat stat-btn" data-act="go" data-v="' + view + '"><div class="v' + (warn && n ? ' over' : '') + '">' + n + '</div><div class="l">' + label + '</div></button>'; }
     var sel = svcs.length > 1 ? '<label class="f" style="min-width:180px">Service<select data-change="db-svc"><option value="">' + (isAdmin() ? 'Tous les services' : 'Tous mes services') + '</option>' + svcs.map(function (s) { return '<option value="' + s + '"' + (S.dbSvc === s ? ' selected' : '') + '>' + esc(svcName(s)) + '</option>'; }).join('') + '</select></label>' : '';
     return '<div class="page-head"><div><div class="eyebrow">' + esc(S.dbSvc ? svcName(S.dbSvc) : (isAdmin() ? coName() : scope.map(svcName).join(' · '))) + '</div><h2>Tableau de bord</h2></div><div class="row">' + sel + '</div></div>' +
-      '<div class="stats">' + (feat('demandes') && (hasRight('requests') || isAdmin()) ? card(toDecide.length, 'demande(s) de congé à valider', 'demandes', true) + card(fromEmp.filter(function (r) { return /^pending/.test(r.status); }).length, 'demande(s) envoyée(s) par les salariés en attente', 'demandes') : '') +
-      (feat('echanges') ? card(swBoss.length, 'échange(s) de shifts à valider', 'tableau', true) + card(swPeer.length, 'échange(s) en attente du collègue', 'tableau') : '') +
-      (feat('extras') && hasRight('extras') ? card(xToSign.length, 'contrat(s) d\'extra à signer', 'extras', true) : '') + '</div>' +
+      '<div class="stats">' + (feat('demandes') && (hasRight('requests') || isAdmin()) ? card(toDecide.length, pl(toDecide.length, 'demande de congé à valider', 'demandes de congé à valider'), 'demandes', true) + card(fromEmp.filter(function (r) { return /^pending/.test(r.status); }).length, 'demandes des salariés en attente de réponse', 'demandes') : '') +
+      (feat('echanges') ? card(swBoss.length, pl(swBoss.length, 'échange de shifts à valider', 'échanges de shifts à valider'), feat('demandes') && (hasRight('requests') || isAdmin()) ? 'demandes' : 'tableau', true) + card(swPeer.length, pl(swPeer.length, 'échange en attente du collègue', 'échanges en attente du collègue'), 'tableau') : '') +
+      (feat('extras') && hasRight('extras') ? card(xToSign.length, pl(xToSign.length, 'contrat d\'extra à signer', 'contrats d\'extra à signer'), 'extras', true) : '') + '</div>' +
       (swBoss.length ? '<section class="list"><h3>Échanges de shifts à valider</h3>' + swBoss.map(function (w) { return swapItem(w, 'boss'); }).join('') + '</section>' : '') +
       (toDecide.length ? '<section class="list"><h3>Demandes à valider <button type="button" class="linkish small" data-act="go" data-v="demandes">tout voir</button></h3>' + toDecide.slice(0, 5).map(function (r) { return requestItem(r, true); }).join('') + '</section>' : '') +
       (fromEmp.filter(function (r) { return toDecide.indexOf(r) < 0; }).length ? '<section class="list"><h3>Dernières demandes reçues des salariés <span class="muted small">(hors « à valider »)</span></h3>' + fromEmp.filter(function (r) { return toDecide.indexOf(r) < 0; }).slice(0, 6).map(function (r) { return requestItem(r, true); }).join('') + '</section>' : '') +
       (swPeer.length || sw.some(function (w) { return !/^pending/.test(w.status); }) ? '<section class="list"><h3>Échanges récents</h3>' + sw.filter(function (w) { return w.status !== 'pending_manager'; }).slice(0, 6).map(function (w) { return swapItem(w, 'x'); }).join('') + '</section>' : '') +
-      '<section class="panel"><h3 style="margin-top:0">Personnel par type de contrat</h3><p class="hint">Heures prévues au planning (pauses déduites) et jours travaillés, par type de contrat de la fiche salarié. Personnel fixe = CDI, CDD et alternants. Effectif = salariés actifs rattachés au(x) service(s).</p>' + mixTable(res[2], res[3], scope) + '</section>' +
+      '<section class="panel"><h3 style="margin-top:0">Personnel par type de contrat</h3><p class="hint">Heures prévues au planning (pauses déduites) et jours travaillés, par type de contrat de la fiche salarié. Le personnel fixe regroupe les CDI, CDD et alternants. L\'effectif compte les salariés actifs des services affichés.</p>' + mixTable(res[2], res[3], scope) + '</section>' +
       (feat('retours') ? feedbackBlock(res[4]) : '');
   }
   var D_ACTIONS = {
     'sw-new': function (b) { openSwap(b.dataset.id); },
+    'sw-pick': function () { openSwapPick(); },
     'sw-yes': async function (b) { try { await attempt(function () { return Store.respondSwap(b.dataset.id, true); }, 'Échange accepté : votre manager doit le valider'); render(); } catch (e) {} },
     'sw-no': async function (b) { try { await attempt(function () { return Store.respondSwap(b.dataset.id, false); }, 'Échange refusé'); render(); } catch (e) {} },
     'sw-cancel': async function (b) {
@@ -3140,7 +3164,7 @@
       try { await attempt(function () { return Store.deleteService(+b.dataset.id); }, 'Service supprimé'); S.services = await Store.services(); render(); } catch (e) {}
     },
     'sen-recalc': async function () {
-      try { var n = await attempt(function () { return Store.accrueSeniority(today()); }); toast(n ? n + ' palier(s) d\'ancienneté crédité(s)' : 'Aucun nouveau palier à créditer'); S.profiles = await Store.profiles(); render(); } catch (e) {}
+      try { var n = await attempt(function () { return Store.accrueSeniority(today()); }); toast(n ? n + pl(n, ' palier d\'ancienneté crédité', ' paliers d\'ancienneté crédités') : 'Aucun nouveau palier à créditer'); S.profiles = await Store.profiles(); render(); } catch (e) {}
     },
     'st-default': async function (b) {
       if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmer les valeurs par défaut'; return; }
@@ -3196,7 +3220,7 @@
         var inp = document.querySelector('input[data-change="staff"][data-key="' + x.key + '"][data-day="' + x.day + '"]'); if (inp) inp.value = x.value == null ? '' : x.value;
       });
       list.map(function (x) { return x.day; }).concat(list.map(function (x) { return C.addDays(x.day, 1); })).filter(function (d, i, a) { return a.indexOf(d) === i; }).forEach(refreshStaffDay);
-      toast(list.length + ' valeur' + (list.length > 1 ? 's' : '') + ' collée' + (list.length > 1 ? 's' : '') + (cut ? ' · ' + cut + ' cellule(s) hors du mois ignorée(s)' : '') + (bad ? ' · ' + bad + ' cellule(s) non numérique(s) ignorée(s)' : ''), !!bad);
+      toast(list.length + ' valeur' + (list.length > 1 ? 's' : '') + ' collée' + (list.length > 1 ? 's' : '') + (cut ? ' · ' + cut + pl(cut, ' cellule hors du mois ignorée', ' cellules hors du mois ignorées') : '') + (bad ? ' · ' + bad + pl(bad, ' cellule sans nombre ignorée', ' cellules sans nombre ignorées') : ''), !!bad);
     } catch (err) { toast(err.message, true); }
   });
   app.addEventListener('keydown', function (e) {
@@ -3379,7 +3403,7 @@
   }
   /* Mise à jour automatique : quand une nouvelle version est déployée à la même adresse, chaque utilisateur la reçoit
      (vérification toutes les 30 s et au retour sur l'onglet) ; rechargement immédiat si rien n'est en cours de saisie, sinon bandeau « Actualiser ». */
-  var APP_VERSION = '62';
+  var APP_VERSION = '63';
   async function checkVersion() {
     if (!/^https?:$/.test(location.protocol) || /claude\.ai|claudeusercontent/.test(location.hostname)) return;
     try {
